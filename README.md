@@ -41,7 +41,7 @@
 
 1. **克隆项目**
 ```bash
-git clone <repository-url>
+git clone https://github.com/machsh64/open-alpha-trade-in-okx.git
 cd open-alpha-trade-in-okx
 ```
 
