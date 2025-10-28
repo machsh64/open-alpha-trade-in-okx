@@ -766,3 +766,91 @@ def get_market_analysis(symbol: str, period: str = "1h", count: int = 168) -> Di
             "error": str(e),
             "period": period
         }
+
+
+def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', params: dict = None) -> dict:
+    """
+    设置交易对的杠杆倍数
+    
+    Args:
+        symbol: 交易对 (e.g., 'BTC/USDT:USDT')
+        leverage: 杠杆倍数 (1-125)
+        margin_mode: 保证金模式 'cross'(全仓) 或 'isolated'(逐仓), 默认全仓
+        params: 额外参数
+        
+    Returns:
+        设置结果字典
+    """
+    try:
+        if not okx_client.private_exchange:
+            raise Exception("OKX private API not initialized")
+        
+        if params is None:
+            params = {}
+        
+        # OKX requires instId (instrument ID) for leverage setting
+        # Format: BTC-USDT-SWAP for perpetual
+        inst_id = symbol.replace('/USDT:USDT', '-USDT-SWAP')
+        
+        # 设置保证金模式和杠杆
+        logger.info(f"Setting leverage for {symbol} ({inst_id}): {leverage}x, margin_mode={margin_mode}")
+        
+        # 使用CCXT的setLeverage方法
+        result = okx_client.private_exchange.set_leverage(
+            leverage=leverage,
+            symbol=symbol,
+            params={
+                'mgnMode': margin_mode,  # 'cross' 或 'isolated'
+                'instId': inst_id,
+                'lever': str(leverage),
+                **params
+            }
+        )
+        
+        logger.info(f"Successfully set leverage for {symbol}: {leverage}x")
+        return {
+            'success': True,
+            'symbol': symbol,
+            'leverage': leverage,
+            'margin_mode': margin_mode,
+            'result': result
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to set leverage for {symbol}: {e}")
+        return {
+            'success': False,
+            'symbol': symbol,
+            'leverage': leverage,
+            'error': str(e)
+        }
+
+
+def get_account_config_okx(params: dict = None) -> dict:
+    """
+    获取账户配置信息，包括杠杆设置
+    
+    Returns:
+        账户配置字典
+    """
+    try:
+        if not okx_client.private_exchange:
+            raise Exception("OKX private API not initialized")
+        
+        if params is None:
+            params = {}
+        
+        # 获取账户配置
+        config = okx_client.private_exchange.private_get_account_config(params)
+        
+        return {
+            'success': True,
+            'config': config
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get account config: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }

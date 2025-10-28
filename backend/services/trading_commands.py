@@ -311,11 +311,33 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 else:
                     continue
 
+                # 从AI决策中获取杠杆倍数
+                leverage = int(decision.get("leverage", 3))  # 默认3倍杠杆
+                if leverage < 1:
+                    leverage = 1
+                elif leverage > 125:
+                    leverage = 125
+                
                 # 直接通过OKX API执行订单（真实交易）
                 name = SUPPORTED_SYMBOLS[symbol]
                 okx_symbol = f"{symbol}-USDT-SWAP"  # OKX永续合约格式
+                ccxt_symbol = f"{symbol}/USDT:USDT"  # CCXT格式
                 
-                logger.info(f"Executing OKX order: {side} {quantity} {okx_symbol}")
+                logger.info(f"Executing OKX order: {side} {quantity} {okx_symbol} with {leverage}x leverage")
+                
+                # 在下单前设置杠杆
+                from services.okx_market_data import set_leverage_okx
+                leverage_result = set_leverage_okx(
+                    symbol=ccxt_symbol,
+                    leverage=leverage,
+                    margin_mode='cross'  # 使用全仓模式
+                )
+                
+                if not leverage_result.get('success'):
+                    logger.warning(f"Failed to set leverage for {symbol}: {leverage_result.get('error')}")
+                    # 继续执行订单，即使杠杆设置失败
+                else:
+                    logger.info(f"Successfully set {leverage}x leverage for {symbol}")
                 
                 # 调用OKX API下单
                 result = create_okx_order(
@@ -328,7 +350,7 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 
                 if result.get('success'):
                     logger.info(
-                        f"✅ OKX AI order executed: {side} {quantity} {symbol} "
+                        f"✅ OKX AI order executed: {side} {quantity} {symbol} @ {leverage}x leverage "
                         f"order_id={result.get('order_id')} reason='{reason}'"
                     )
                     

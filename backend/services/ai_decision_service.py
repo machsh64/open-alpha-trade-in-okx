@@ -89,11 +89,21 @@ def _get_portfolio_data_from_okx() -> Dict:
             if quantity > 0:
                 entry_price = float(pos.get('entryPrice', 0))  # 开仓均价
                 notional = abs(float(pos.get('notional', 0)))  # 持仓价值
+                leverage_raw = pos.get('leverage', 1)  # 杠杆倍数
+                margin_mode = pos.get('marginMode', 'cross')  # 保证金模式
+                
+                # 解析杠杆（可能是字符串）
+                try:
+                    leverage = float(leverage_raw) if leverage_raw else 1
+                except:
+                    leverage = 1
                 
                 portfolio[symbol] = {
                     "quantity": quantity,
                     "avg_cost": entry_price,
-                    "current_value": notional
+                    "current_value": notional,
+                    "leverage": int(leverage),
+                    "margin_mode": margin_mode
                 }
                 total_position_value += notional
         
@@ -219,7 +229,7 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
             market_analysis_text += " → ".join([f"{c['change']:+.1f}%" for c in recent])
             market_analysis_text += "\n"
 
-        prompt = f"""You are a professional cryptocurrency futures trading AI. You have access to leverage trading (1x-50x). Based on comprehensive market data, make your own trading decisions.
+        prompt = f"""You are a professional cryptocurrency futures trading AI with a SHORT-TERM TRADING focus. You have access to leverage trading (1x-50x). Based on comprehensive market data, make your own trading decisions.
 
 Portfolio Data:
 - Cash Available: ${portfolio['cash']:.2f}
@@ -237,7 +247,23 @@ Latest Crypto News (CoinJournal):
 {news_section}
 
 YOUR MISSION:
-Analyze the market data comprehensively and make your own trading decisions. You are a professional trader with full autonomy.
+Analyze the market data comprehensively and make SHORT-TERM trading decisions (hold positions for less than 7 days typically). You are a professional day/swing trader with full autonomy.
+
+⚠️ SHORT-TERM TRADING STRATEGY:
+- PRIMARY: Keep positions for less than 1 WEEK (7 days) in most cases
+- ONLY hold longer if you have EXCEPTIONAL confidence in a strong trend
+- Focus on capturing short-term momentum and quick profits
+- Be ready to close positions quickly if momentum weakens
+- Prioritize risk management over long-term holding
+- React to short-term price movements (15min, 1h, 4h timeframes)
+
+💡 PORTFOLIO DIVERSIFICATION:
+- You CAN hold MULTIPLE different cryptocurrencies SIMULTANEOUSLY
+- Don't feel limited to holding only one position at a time
+- Diversify across different coins when opportunities arise
+- Each coin decision is independent - you can buy BTC while holding ETH
+- Consider spreading risk across 2-3 different positions
+- Balance your portfolio based on conviction and market conditions
 
 AVAILABLE TOOLS:
 - Leverage: 1x to 50x (higher leverage = higher risk and reward)
@@ -252,6 +278,7 @@ YOUR DECISION FRAMEWORK:
 3. **Risk Assessment**: Consider volatility and market conditions when choosing leverage
 4. **Position Sizing**: Decide how much capital to deploy (0-100% of available cash)
 5. **News Impact**: Factor in crypto news sentiment and market events
+6. **EXIT PLANNING**: Always consider when to exit - don't let positions sit too long
 
 LEVERAGE GUIDELINES:
 - 1-3x: Conservative, suitable for uncertain markets or high volatility
@@ -259,6 +286,15 @@ LEVERAGE GUIDELINES:
 - 11-25x: Aggressive, for very strong conviction with multiple confirming signals
 - 26-50x: Extreme, only for exceptional opportunities with overwhelming evidence and tight risk management
 - Higher leverage amplifies both gains AND losses exponentially
+- For short-term trades, higher leverage can be appropriate with tight stops
+
+POSITION MANAGEMENT:
+- Check existing positions - if held for 5+ days without strong momentum, consider closing
+- If a position shows 15-20% profit in short-term, consider taking profits
+- If a position shows 8-10% loss, consider cutting it
+- Don't be afraid to sell and re-enter at better prices
+- You can manage multiple positions: hold ETH while buying SOL, or sell BTC while keeping DOGE
+- Diversification is your friend - don't put all capital in one coin unless extremely confident
 
 MAKE YOUR DECISION - be bold but smart. Trading every 5 minutes means you can react quickly to market changes.
 
@@ -268,18 +304,19 @@ Respond with ONLY a JSON object in this exact format:
   "symbol": "BTC" or "ETH" or "SOL" or "BNB" or "XRP" or "DOGE",
   "target_portion_of_balance": 0.15,
   "leverage": 3,
-  "reason": "Your analysis considering multiple timeframes, technical indicators, and conviction level"
+  "reason": "Your analysis considering short-term momentum, entry/exit timing, and position management"
 }}
 
 RULES:
 - operation: "buy" (open long), "sell" (close position), "hold" (wait)
-- symbol: Which cryptocurrency to trade
+- symbol: Which cryptocurrency to trade (you can hold multiple different coins simultaneously)
 - target_portion_of_balance: % of available cash to use (0.0-1.0). Be bold if signals are strong
 - leverage: 1-50. Match leverage to your conviction level and market volatility
-- reason: Explain your technical analysis and reasoning
+- reason: Explain your technical analysis, focusing on SHORT-TERM momentum and exit strategy
 - You can trade up to 100% of cash if conviction is very high
 - Use higher leverage (20-50x) ONLY for exceptional opportunities with overwhelming technical confluence
-- Consider all timeframes: rapid changes in 15m/1h suggest short-term opportunities, 4h/24h/7d show broader trends"""
+- Consider all timeframes: rapid changes in 15m/1h suggest short-term opportunities, 4h/24h/7d show broader trends
+- PRIORITY: Short-term trades, quick in and out, capture momentum"""
 
         headers = {
             "Content-Type": "application/json",
