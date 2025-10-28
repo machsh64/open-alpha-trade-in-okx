@@ -371,6 +371,7 @@ def reset_auto_trading_job():
             logger.info(f"Removed existing auto trading job: {AI_TRADE_JOB_ID}")
         
         # Re-add the auto trading job with updated configuration
+        # Use replace_existing=True to prevent duplicate tasks
         task_scheduler.add_interval_task(
             task_func=lambda: place_ai_driven_crypto_order(max_ratio=0.2),
             interval_seconds=AI_TRADE_INTERVAL_SECONDS,

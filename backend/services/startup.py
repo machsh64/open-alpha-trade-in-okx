@@ -90,16 +90,6 @@ def schedule_auto_trading(interval_seconds: int = 300, max_ratio: float = 0.2, u
         AI_TRADE_JOB_ID
     )
 
-    def execute_trade():
-        try:
-            if use_ai:
-                place_ai_driven_crypto_order(max_ratio)
-            else:
-                place_random_crypto_order(max_ratio)
-            logger.info("Initial auto-trading execution completed")
-        except Exception as e:
-            logger.error(f"Error during initial auto-trading execution: {e}")
-
     if use_ai:
         task_func = place_ai_driven_crypto_order
         job_id = AI_TRADE_JOB_ID
@@ -109,7 +99,12 @@ def schedule_auto_trading(interval_seconds: int = 300, max_ratio: float = 0.2, u
         job_id = AUTO_TRADE_JOB_ID
         logger.info("Scheduling random crypto trading")
 
-    # Schedule the recurring task
+    # Check if the job already exists to prevent duplicate scheduling
+    if task_scheduler.scheduler and task_scheduler.scheduler.get_job(job_id):
+        logger.warning(f"Trading job {job_id} already exists, skipping duplicate scheduling")
+        return
+
+    # Schedule the recurring task with replace_existing=True to prevent duplicates
     task_scheduler.add_interval_task(
         task_func=task_func,
         interval_seconds=interval_seconds,
@@ -117,6 +112,4 @@ def schedule_auto_trading(interval_seconds: int = 300, max_ratio: float = 0.2, u
         max_ratio=max_ratio,
     )
     
-    # Execute the first trade immediately in a separate thread to avoid blocking
-    initial_trade = threading.Thread(target=execute_trade, daemon=True)
-    initial_trade.start()
+    logger.info(f"Auto trading job {job_id} scheduled successfully (interval: {interval_seconds}s)")
