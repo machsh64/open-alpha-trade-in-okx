@@ -41,8 +41,95 @@ def _is_default_api_key(api_key: str) -> bool:
     return api_key in DEMO_API_KEYS
 
 
+def _get_portfolio_data_from_okx() -> Dict:
+    """
+    从OKX获取真实账户数据（用于AI决策）
+    Get real OKX account data for AI trading decisions
+    """
+    try:
+        from services.okx_market_data import fetch_balance_okx, fetch_positions_okx
+        
+        # 获取OKX余额
+        balance = fetch_balance_okx()
+        
+        # CCXT返回的格式:
+        # balance['info']['data'][0]['totalEq'] = 总权益
+        # balance['USDT']['free'] = USDT可用余额
+        # balance['total']['USDT'] = USDT总额
+        
+        usdt_free = float(balance.get('USDT', {}).get('free', 0))  # USDT可用余额
+        usdt_total = float(balance.get('USDT', {}).get('total', 0))  # USDT总额
+        usdt_used = float(balance.get('USDT', {}).get('used', 0))  # USDT占用（冻结）
+        
+        # 如果没有top-level的余额信息，从info中提取
+        if usdt_total == 0 and 'info' in balance:
+            info_data = balance['info'].get('data', [])
+            if info_data:
+                account_data = info_data[0]
+                # totalEq是总权益（USDT计价）
+                usdt_total = float(account_data.get('totalEq', 0))
+                # 从details中找USDT的详细信息
+                for detail in account_data.get('details', []):
+                    if detail.get('ccy') == 'USDT':
+                        usdt_free = float(detail.get('availBal', 0))
+                        usdt_used = float(detail.get('frozenBal', 0))
+                        break
+        
+        # 获取OKX持仓
+        positions = fetch_positions_okx()
+        portfolio = {}
+        total_position_value = 0.0
+        
+        for pos in positions:
+            symbol = pos.get('symbol', '').replace('/USDT:USDT', '')  # BTC/USDT:USDT -> BTC
+            if not symbol:
+                continue
+                
+            quantity = abs(float(pos.get('contracts', 0)))  # 持仓数量
+            if quantity > 0:
+                entry_price = float(pos.get('entryPrice', 0))  # 开仓均价
+                notional = abs(float(pos.get('notional', 0)))  # 持仓价值
+                
+                portfolio[symbol] = {
+                    "quantity": quantity,
+                    "avg_cost": entry_price,
+                    "current_value": notional
+                }
+                total_position_value += notional
+        
+        logger.info(f"[OKX Portfolio] Cash=${usdt_free:.2f}, Frozen=${usdt_used:.2f}, Positions=${total_position_value:.2f}, Total=${usdt_total:.2f}")
+        print(f"[OKX Portfolio] Cash=${usdt_free:.2f}, Frozen=${usdt_used:.2f}, Positions=${total_position_value:.2f}, Total=${usdt_total:.2f}")
+        
+        return {
+            "cash": usdt_free,
+            "frozen_cash": usdt_used,
+            "positions": portfolio,
+            "total_assets": usdt_total
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get OKX portfolio data: {e}")
+        import traceback
+        traceback.print_exc()
+        # 如果获取OKX数据失败，返回默认数据
+        return {
+            "cash": 0.0,
+            "frozen_cash": 0.0,
+            "positions": {},
+            "total_assets": 0.0
+        }
+
+
 def _get_portfolio_data(db: Session, account: Account) -> Dict:
-    """Get current portfolio positions and values"""
+    """
+    Get current portfolio positions and values
+    已废弃：现在AI交易使用OKX真实数据，请使用 _get_portfolio_data_from_okx()
+    """
+    # 对于AI账户，直接从OKX获取数据
+    if account.account_type == "AI":
+        return _get_portfolio_data_from_okx()
+    
+    # 对于其他账户类型，使用本地数据库数据（向后兼容）
     positions = db.query(Position).filter(
         Position.account_id == account.id,
         Position.market == "CRYPTO"
@@ -73,10 +160,66 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
         return None
     
     try:
+        # 获取新闻摘要
         news_summary = fetch_latest_news()
         news_section = news_summary if news_summary else "No recent CoinJournal news available."
+        
+        # 获取主要币种的市场分析数据（历史价格 + 技术指标）
+        from services.okx_market_data import get_market_analysis
+        
+        symbols_to_analyze = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE"]
+        market_analysis = {}
+        
+        logger.info("Fetching market analysis data for AI decision...")
+        for symbol in symbols_to_analyze:
+            try:
+                analysis = get_market_analysis(symbol, period="1h", count=168)  # 1周的小时线
+                if "error" not in analysis:
+                    market_analysis[symbol] = analysis
+                    logger.info(f"  - {symbol}: Got {analysis.get('data_points', 0)} data points")
+                else:
+                    logger.warning(f"  - {symbol}: Failed - {analysis.get('error')}")
+            except Exception as e:
+                logger.error(f"Failed to get analysis for {symbol}: {e}")
+        
+        # 构建市场分析摘要文本
+        market_analysis_text = ""
+        for symbol, analysis in market_analysis.items():
+            market_analysis_text += f"\n{symbol} Analysis:\n"
+            market_analysis_text += f"  Current Price: ${analysis['current_price']}\n"
+            market_analysis_text += f"  Price Changes: 15m:{analysis['price_changes']['15m_percent']}%, "
+            market_analysis_text += f"1h:{analysis['price_changes']['1h_percent']}%, "
+            market_analysis_text += f"4h:{analysis['price_changes']['4h_percent']}%, "
+            market_analysis_text += f"24h:{analysis['price_changes']['24h_percent']}%, "
+            market_analysis_text += f"7d:{analysis['price_changes']['7d_percent']}%\n"
+            
+            if analysis['moving_averages']['sma_7']:
+                market_analysis_text += f"  Moving Averages: SMA7=${analysis['moving_averages']['sma_7']}, "
+                market_analysis_text += f"SMA25=${analysis['moving_averages']['sma_25']}, "
+                market_analysis_text += f"SMA99=${analysis['moving_averages']['sma_99']}\n"
+            
+            if analysis['technical_indicators']['rsi_14']:
+                market_analysis_text += f"  RSI(14): {analysis['technical_indicators']['rsi_14']} "
+                rsi = analysis['technical_indicators']['rsi_14']
+                if rsi > 70:
+                    market_analysis_text += "(OVERBOUGHT)\n"
+                elif rsi < 30:
+                    market_analysis_text += "(OVERSOLD)\n"
+                else:
+                    market_analysis_text += "(NEUTRAL)\n"
+            
+            market_analysis_text += f"  Trend: {analysis['technical_indicators']['trend']}\n"
+            market_analysis_text += f"  Volatility(24h): {analysis['technical_indicators']['volatility_24h']}%\n"
+            market_analysis_text += f"  Support/Resistance: ${analysis['support_resistance']['recent_low_24h']} / ${analysis['support_resistance']['recent_high_24h']}\n"
+            market_analysis_text += f"  Volume Ratio: {analysis['volume_analysis']['volume_ratio']}x (vs 24h avg)\n"
+            
+            # 添加最近K线趋势
+            recent = analysis['recent_candles'][-3:]  # 最近3根K线
+            market_analysis_text += f"  Recent Trend (last 3 candles): "
+            market_analysis_text += " → ".join([f"{c['change']:+.1f}%" for c in recent])
+            market_analysis_text += "\n"
 
-        prompt = f"""You are a conservative cryptocurrency trading AI with risk management expertise. Based on the following portfolio and market data, decide on a trading action.
+        prompt = f"""You are a professional cryptocurrency futures trading AI. You have access to leverage trading (1x-50x). Based on comprehensive market data, make your own trading decisions.
 
 Portfolio Data:
 - Cash Available: ${portfolio['cash']:.2f}
@@ -87,33 +230,56 @@ Portfolio Data:
 Current Market Prices:
 {json.dumps(prices, indent=2)}
 
+TECHNICAL ANALYSIS & MARKET DATA (Past 7 Days with 1-hour candles):
+{market_analysis_text}
+
 Latest Crypto News (CoinJournal):
 {news_section}
 
-IMPORTANT TRADING GUIDELINES:
-1. **Be CONSERVATIVE**: Not every market check requires a trade. Only trade when you see a clear opportunity.
-2. **Prefer HOLD**: It's often better to hold and wait than to trade frequently. Frequent trading increases costs and risks.
-3. **Risk Management**: Keep target_portion_of_balance low (0.05-0.15) to avoid over-concentration.
-4. **Diversification**: If you already hold multiple positions, consider holding unless you see a strong sell signal.
-5. **Market Analysis**: Look for significant price movements or news events before deciding to buy/sell.
+YOUR MISSION:
+Analyze the market data comprehensively and make your own trading decisions. You are a professional trader with full autonomy.
 
-Analyze the market and portfolio carefully, then respond with ONLY a JSON object in this exact format:
+AVAILABLE TOOLS:
+- Leverage: 1x to 50x (higher leverage = higher risk and reward)
+- Operations: buy, sell, hold
+- Multiple timeframes: 15min, 1h, 4h, 24h, 7d price changes
+- Technical indicators: RSI, Moving Averages, Trend, Volume, Volatility
+- Market news and sentiment
+
+YOUR DECISION FRAMEWORK:
+1. **Market Analysis**: Study all timeframes (15m, 1h, 4h, 24h, 7d) to understand short-term momentum and long-term trends
+2. **Technical Signals**: Interpret RSI, moving averages, volume, and volatility in context
+3. **Risk Assessment**: Consider volatility and market conditions when choosing leverage
+4. **Position Sizing**: Decide how much capital to deploy (0-100% of available cash)
+5. **News Impact**: Factor in crypto news sentiment and market events
+
+LEVERAGE GUIDELINES:
+- 1-3x: Conservative, suitable for uncertain markets or high volatility
+- 4-10x: Moderate, for clear trends with confirmation
+- 11-25x: Aggressive, for very strong conviction with multiple confirming signals
+- 26-50x: Extreme, only for exceptional opportunities with overwhelming evidence and tight risk management
+- Higher leverage amplifies both gains AND losses exponentially
+
+MAKE YOUR DECISION - be bold but smart. Trading every 5 minutes means you can react quickly to market changes.
+
+Respond with ONLY a JSON object in this exact format:
 {{
   "operation": "buy" or "sell" or "hold",
   "symbol": "BTC" or "ETH" or "SOL" or "BNB" or "XRP" or "DOGE",
-  "target_portion_of_balance": 0.1,
-  "reason": "Brief explanation of your decision"
+  "target_portion_of_balance": 0.15,
+  "leverage": 3,
+  "reason": "Your analysis considering multiple timeframes, technical indicators, and conviction level"
 }}
 
-Rules:
-- operation must be "buy", "sell", or "hold"
-- For "buy": symbol is what to buy, target_portion_of_balance is % of cash to use (0.0-1.0)
-- For "sell": symbol is what to sell, target_portion_of_balance is % of position to sell (0.0-1.0)
-- For "hold": no action taken (PREFERRED if no clear signal)
-- Keep target_portion_of_balance between 0.05 and 0.2 for conservative risk management
-- Only trade when you have a STRONG reason based on market data or news
-- When in doubt, choose "hold"
-- Only choose symbols you have data for"""
+RULES:
+- operation: "buy" (open long), "sell" (close position), "hold" (wait)
+- symbol: Which cryptocurrency to trade
+- target_portion_of_balance: % of available cash to use (0.0-1.0). Be bold if signals are strong
+- leverage: 1-50. Match leverage to your conviction level and market volatility
+- reason: Explain your technical analysis and reasoning
+- You can trade up to 100% of cash if conviction is very high
+- Use higher leverage (20-50x) ONLY for exceptional opportunities with overwhelming technical confluence
+- Consider all timeframes: rapid changes in 15m/1h suggest short-term opportunities, 4h/24h/7d show broader trends"""
 
         headers = {
             "Content-Type": "application/json",
@@ -138,6 +304,10 @@ Rules:
         base_url = account.base_url.rstrip('/')
         # Use /chat/completions endpoint (OpenAI-compatible)
         api_endpoint = f"{base_url}/chat/completions"
+        
+        # Log basic info (without full prompt)
+        logger.info(f"Calling AI Model: {account.name} ({payload['model']})")
+        logger.info(f"API Endpoint: {api_endpoint}")
         
         # Retry logic for rate limiting
         max_retries = 3
@@ -261,7 +431,10 @@ Rules:
                 logger.error(f"AI response is not a dict: {type(decision)}")
                 return None
             
-            logger.info(f"AI decision for {account.name}: {decision}")
+            # Add the full prompt to the decision for logging
+            decision['_prompt'] = prompt
+            
+            logger.info(f"AI decision for {account.name}: {decision.get('operation')} {decision.get('symbol', 'N/A')}")
             return decision
         
         logger.error(f"Unexpected AI response format: {result}")
@@ -291,7 +464,15 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
         symbol_raw = decision.get("symbol")
         symbol = symbol_raw.upper() if symbol_raw else None
         target_portion = float(decision.get("target_portion_of_balance", 0)) if decision.get("target_portion_of_balance") is not None else 0.0
+        leverage = int(decision.get("leverage", 1))  # Extract leverage, default to 1x
         reason = decision.get("reason", "No reason provided")
+        prompt = decision.get("_prompt", "")  # Extract full prompt from decision
+        
+        # Validate leverage range
+        if leverage < 1:
+            leverage = 1
+        elif leverage > 50:
+            leverage = 50
         
         # Calculate previous portion for the symbol
         prev_portion = 0.0
@@ -311,9 +492,11 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
             symbol=symbol if operation != "hold" else None,
             prev_portion=Decimal(str(prev_portion)),
             target_portion=Decimal(str(target_portion)),
+            leverage=leverage,
             total_balance=Decimal(str(portfolio["total_assets"])),
             executed="true" if executed else "false",
-            order_id=order_id
+            order_id=order_id,
+            prompt=prompt  # Save full prompt to database
         )
         
         db.add(decision_log)
@@ -321,7 +504,8 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
         
         symbol_str = symbol if symbol else "N/A"
         logger.info(f"Saved AI decision log for account {account.name}: {operation} {symbol_str} "
-                   f"prev_portion={prev_portion:.4f} target_portion={target_portion:.4f} executed={executed}")
+                   f"leverage={leverage}x portion={target_portion:.2%} executed={executed}")
+        logger.info(f"Prompt saved to database (length: {len(prompt)} chars)")
         
     except Exception as err:
         logger.error(f"Failed to save AI decision log: {err}")

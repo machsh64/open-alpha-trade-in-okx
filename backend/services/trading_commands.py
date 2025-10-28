@@ -353,10 +353,24 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                         try:
                             from api.ws import manager
                             import asyncio
-                            # 在后台触发快照更新
-                            asyncio.create_task(_notify_account_update(account.id))
+                            # 检查是否有运行的事件循环
+                            try:
+                                loop = asyncio.get_running_loop()
+                                # 在运行的事件循环中创建任务
+                                asyncio.create_task(_notify_account_update(account.id))
+                            except RuntimeError:
+                                # 没有运行的事件循环，使用 run_coroutine_threadsafe
+                                try:
+                                    loop = asyncio.get_event_loop()
+                                    if loop.is_running():
+                                        asyncio.run_coroutine_threadsafe(_notify_account_update(account.id), loop)
+                                    else:
+                                        # 事件循环未运行，跳过 WebSocket 通知
+                                        logger.debug("Event loop not running, skipping WebSocket notification")
+                                except Exception:
+                                    logger.debug("No event loop available, skipping WebSocket notification")
                         except Exception as notify_err:
-                            logger.warning(f"Failed to trigger WebSocket notification: {notify_err}")
+                            logger.debug(f"WebSocket notification skipped: {notify_err}")
                     
                 else:
                     logger.error(

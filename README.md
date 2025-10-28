@@ -89,17 +89,31 @@ uv run python init_database.py
 
 开发模式（同时启动前后端）：
 ```bash
+# Windows
 pnpm dev
+
+# Linux/Mac
+pnpm run dev:backend:unix &
+pnpm run dev:frontend
 ```
 
 或分别启动：
 ```bash
 # 仅后端 (端口 5611)
+# Windows
 pnpm run dev:backend
+
+# Linux/Mac
+pnpm run dev:backend:unix
 
 # 仅前端 (端口 5621)
 pnpm run dev:frontend
 ```
+
+**注意**: 
+- 项目使用内置的Python环境（`.conda/`目录），**无需额外安装Python**
+- 首次运行前确保执行了 `pnpm install:all`
+- 启动脚本会自动查找项目Python环境
 
 7. **访问应用**
 

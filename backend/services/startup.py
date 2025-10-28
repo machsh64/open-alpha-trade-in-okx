@@ -30,8 +30,13 @@ def initialize_services():
         # 可以通过环境变量 AI_TRADE_INTERVAL 来调整（单位：秒）
         import os
         ai_interval = int(os.getenv('AI_TRADE_INTERVAL', '1800'))  # 默认30分钟
+        print(f"\n{'='*60}")
+        print(f"[STARTUP] Starting AI Trading Scheduler")
+        print(f"[STARTUP] AI_TRADE_INTERVAL = {ai_interval} seconds ({ai_interval // 60} minutes)")
+        print(f"{'='*60}\n")
         schedule_auto_trading(interval_seconds=ai_interval)
         logger.info(f"Automatic AI trading task started ({ai_interval // 60}-minute interval)")
+        print(f"[STARTUP] AI Trading task scheduled successfully!\n")
         
         # Add price cache cleanup task (every 2 minutes)
         from services.price_cache import clear_expired_prices

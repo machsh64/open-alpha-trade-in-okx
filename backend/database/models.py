@@ -219,9 +219,11 @@ class AIDecisionLog(Base):
     symbol = Column(String(20), nullable=True)  # symbol for buy/sell operations
     prev_portion = Column(DECIMAL(10, 6), nullable=False, default=0)  # previous balance portion
     target_portion = Column(DECIMAL(10, 6), nullable=False)  # target balance portion
+    leverage = Column(Integer, nullable=True, default=1)  # leverage for futures trading (1-50x)
     total_balance = Column(DECIMAL(18, 2), nullable=False)  # total balance at decision time
     executed = Column(String(10), nullable=False, default="false")  # whether the decision was executed
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)  # linked order if executed
+    prompt = Column(String, nullable=True)  # Full prompt sent to AI model
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
     # Relationships

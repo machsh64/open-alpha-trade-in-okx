@@ -365,9 +365,13 @@ async def _send_snapshot(db: Session, account_id: int):
 
 
 async def websocket_endpoint(websocket: WebSocket):
-    logging.info(f"WebSocket connection attempt from {websocket.client}")
+    logging.info("=" * 80)
+    logging.info(f"🔌 WebSocket connection attempt from {websocket.client}")
+    logging.info(f"   URL: {websocket.url}")
+    logging.info(f"   Headers: {dict(websocket.headers)}")
     await websocket.accept()
-    logging.info("WebSocket connection accepted")
+    logging.info("✅ WebSocket connection accepted successfully")
+    logging.info("=" * 80)
     account_id: int | None = None
     user_id: int | None = None  # Initialize user_id to avoid UnboundLocalError
 
@@ -375,11 +379,12 @@ async def websocket_endpoint(websocket: WebSocket):
         while True:
             # Check if WebSocket is still connected before trying to receive
             if websocket.client_state.name != "CONNECTED":
+                logging.warning(f"⚠️  WebSocket state changed to {websocket.client_state.name}")
                 break
                 
             try:
                 data = await websocket.receive_text()
-                logging.info(f"WebSocket received message: {data[:100]}")  # Log first 100 chars
+                logging.info(f"📨 WebSocket received message: {data[:200]}")  # Log first 200 chars
             except WebSocketDisconnect:
                 # Client disconnected gracefully
                 break

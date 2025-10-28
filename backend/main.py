@@ -112,8 +112,14 @@ def on_startup():
         db.close()
     
     # Initialize all services (scheduler, market data tasks, auto trading, etc.)
+    print("\n" + "="*80)
+    print("[MAIN] Initializing all services...")
+    print("="*80 + "\n")
     from services.startup import initialize_services
     initialize_services()
+    print("\n" + "="*80)
+    print("[MAIN] All services initialized!")
+    print("="*80 + "\n")
 
 
 @app.on_event("shutdown")

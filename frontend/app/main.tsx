@@ -8,6 +8,13 @@ let __WS_SINGLETON__: WebSocket | null = null;
 
 const resolveWsUrl = () => {
   if (typeof window === 'undefined') return 'ws://localhost:5611/ws'
+  
+  // In development, always connect to backend port 5611
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'ws://localhost:5611/ws'
+  }
+  
+  // In production, use the same host
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/ws`
 }
@@ -75,31 +82,42 @@ function App() {
     
     const connectWebSocket = () => {
       try {
-        ws = new WebSocket(resolveWsUrl())
+        const wsUrl = resolveWsUrl()
+        console.log('🔌 Attempting WebSocket connection to:', wsUrl)
+        ws = new WebSocket(wsUrl)
         __WS_SINGLETON__ = ws
         wsRef.current = ws
         
         const handleOpen = () => {
-          console.log('WebSocket connected')
+          console.log('✅ WebSocket connected successfully')
           // Start with hardcoded default user for paper trading
-          ws!.send(JSON.stringify({ type: 'bootstrap', username: 'default', initial_capital: 10000 }))
+          const bootstrapMsg = { type: 'bootstrap', username: 'default', initial_capital: 10000 }
+          console.log('📤 Sending bootstrap message:', bootstrapMsg)
+          ws!.send(JSON.stringify(bootstrapMsg))
         }
         
         const handleMessage = (e: MessageEvent) => {
           try {
+            console.log('📨 WebSocket message received:', e.data.substring(0, 200))
             const msg = JSON.parse(e.data)
+            console.log('📦 Parsed message type:', msg.type)
             if (msg.type === 'bootstrap_ok') {
+              console.log('✅ Bootstrap successful!')
               if (msg.user) {
+                console.log('👤 User set:', msg.user)
                 setUser(msg.user)
               }
               if (msg.account) {
+                console.log('💼 Account set:', msg.account)
                 setAccount(msg.account)
               }
               // refresh accounts list once bootstrapped
               refreshAccounts()
               // request initial snapshot
+              console.log('📤 Requesting initial snapshot')
               ws!.send(JSON.stringify({ type: 'get_snapshot' }))
             } else if (msg.type === 'snapshot') {
+              console.log('📊 Snapshot received')
               setOverview(msg.overview)
               setPositions(msg.positions)
               setOrders(msg.orders)
@@ -131,21 +149,24 @@ function App() {
         }
         
         const handleClose = (event: CloseEvent) => {
-          console.log('WebSocket closed:', event.code, event.reason)
+          console.log('❌ WebSocket closed - Code:', event.code, 'Reason:', event.reason)
+          console.log('   Clean close:', event.wasClean)
           __WS_SINGLETON__ = null
           if (wsRef.current === ws) wsRef.current = null
           
           // Attempt to reconnect after 3 seconds if the close wasn't intentional
           if (event.code !== 1000 && event.code !== 1001) {
+            console.log('🔄 Will attempt to reconnect in 3 seconds...')
             reconnectTimer = setTimeout(() => {
-              console.log('Attempting to reconnect WebSocket...')
+              console.log('🔄 Attempting to reconnect WebSocket...')
               connectWebSocket()
             }, 3000)
           }
         }
         
         const handleError = (event: Event) => {
-          console.error('WebSocket error:', event)
+          console.error('🚨 WebSocket error:', event)
+          console.error('   WebSocket state:', ws?.readyState)
         }
 
         ws.addEventListener('open', handleOpen)

@@ -587,3 +587,182 @@ def fetch_closed_orders_okx(symbol: str = None, since: int = None, limit: int = 
 def fetch_my_trades_okx(symbol: str = None, since: int = None, limit: int = 100, params: dict = None) -> List[Dict[str, Any]]:
     """Fetch trade history from OKX"""
     return okx_client.fetch_my_trades(symbol, since, limit, params)
+
+
+def get_market_analysis(symbol: str, period: str = "1h", count: int = 168) -> Dict[str, Any]:
+    """
+    获取市场分析数据，包括历史价格和技术指标
+    
+    Args:
+        symbol: 交易对符号，如 'BTC', 'ETH'
+        period: K线周期，默认1小时
+        count: 获取的K线数量，默认168（1周的小时线）
+        
+    Returns:
+        包含价格历史、技术指标和市场统计的字典
+    """
+    try:
+        # 获取K线数据
+        klines = okx_client.get_kline_data(symbol, period, count)
+        
+        if not klines or len(klines) < 2:
+            return {
+                "symbol": symbol,
+                "error": "Insufficient data",
+                "period": period
+            }
+        
+        # 提取价格数据
+        closes = [k['close'] for k in klines if k['close'] is not None]
+        highs = [k['high'] for k in klines if k['high'] is not None]
+        lows = [k['low'] for k in klines if k['low'] is not None]
+        volumes = [k['volume'] for k in klines if k['volume'] is not None]
+        
+        if not closes:
+            return {
+                "symbol": symbol,
+                "error": "No valid price data",
+                "period": period
+            }
+        
+        current_price = closes[-1]
+        
+        # 计算简单技术指标
+        # 1. 价格变化（多个时间段）
+        price_15m_ago = closes[-15] if len(closes) >= 15 else closes[0]  # 15分钟前
+        price_1h_ago = closes[-60] if len(closes) >= 60 else closes[-1] if len(closes) >= 1 else closes[0]  # 1小时前
+        price_4h_ago = closes[-240] if len(closes) >= 240 else closes[0]  # 4小时前（240分钟）
+        price_24h_ago = closes[-24] if len(closes) >= 24 else closes[0]  # 24小时前（24个1小时K线）
+        price_7d_ago = closes[0]  # 7天前
+        
+        change_15m = ((current_price - price_15m_ago) / price_15m_ago * 100) if price_15m_ago else 0
+        change_1h = ((current_price - price_1h_ago) / price_1h_ago * 100) if price_1h_ago else 0
+        change_4h = ((current_price - price_4h_ago) / price_4h_ago * 100) if price_4h_ago else 0
+        change_24h = ((current_price - price_24h_ago) / price_24h_ago * 100) if price_24h_ago else 0
+        change_7d = ((current_price - price_7d_ago) / price_7d_ago * 100) if price_7d_ago else 0
+        
+        # 2. 简单移动平均线 (SMA)
+        def calculate_sma(data, period):
+            if len(data) < period:
+                return None
+            return sum(data[-period:]) / period
+        
+        sma_7 = calculate_sma(closes, 7)    # 7周期
+        sma_25 = calculate_sma(closes, 25)  # 25周期
+        sma_99 = calculate_sma(closes, 99)  # 99周期
+        
+        # 3. 波动率 (最近24小时的价格标准差)
+        recent_closes = closes[-24:] if len(closes) >= 24 else closes
+        avg_price = sum(recent_closes) / len(recent_closes)
+        variance = sum((x - avg_price) ** 2 for x in recent_closes) / len(recent_closes)
+        volatility = (variance ** 0.5) / avg_price * 100  # 百分比形式
+        
+        # 4. 相对强弱指标 RSI (简化版，14周期)
+        def calculate_rsi(prices, period=14):
+            if len(prices) < period + 1:
+                return None
+            
+            gains = []
+            losses = []
+            for i in range(1, len(prices)):
+                change = prices[i] - prices[i-1]
+                gains.append(max(change, 0))
+                losses.append(max(-change, 0))
+            
+            avg_gain = sum(gains[-period:]) / period
+            avg_loss = sum(losses[-period:]) / period
+            
+            if avg_loss == 0:
+                return 100
+            
+            rs = avg_gain / avg_loss
+            rsi = 100 - (100 / (1 + rs))
+            return rsi
+        
+        rsi = calculate_rsi(closes, 14)
+        
+        # 5. 支撑位和阻力位（最近的最高和最低价）
+        recent_high = max(highs[-24:]) if len(highs) >= 24 else max(highs)
+        recent_low = min(lows[-24:]) if len(lows) >= 24 else min(lows)
+        
+        # 6. 成交量分析
+        avg_volume = sum(volumes[-24:]) / len(volumes[-24:]) if len(volumes) >= 24 else sum(volumes) / len(volumes)
+        current_volume = volumes[-1] if volumes else 0
+        volume_ratio = (current_volume / avg_volume) if avg_volume > 0 else 1.0
+        
+        # 7. 趋势判断
+        trend = "NEUTRAL"
+        if sma_7 and sma_25:
+            if sma_7 > sma_25 * 1.02:  # 7日均线显著高于25日均线
+                trend = "BULLISH"
+            elif sma_7 < sma_25 * 0.98:  # 7日均线显著低于25日均线
+                trend = "BEARISH"
+        
+        # 构建分析结果
+        analysis = {
+            "symbol": symbol,
+            "period": period,
+            "data_points": len(klines),
+            "current_price": round(current_price, 2),
+            
+            "price_changes": {
+                "15m_percent": round(change_15m, 2),
+                "1h_percent": round(change_1h, 2),
+                "4h_percent": round(change_4h, 2),
+                "24h_percent": round(change_24h, 2),
+                "7d_percent": round(change_7d, 2),
+                "15m_price": round(price_15m_ago, 2),
+                "1h_price": round(price_1h_ago, 2),
+                "4h_price": round(price_4h_ago, 2),
+                "24h_price": round(price_24h_ago, 2),
+                "7d_price": round(price_7d_ago, 2)
+            },
+            
+            "moving_averages": {
+                "sma_7": round(sma_7, 2) if sma_7 else None,
+                "sma_25": round(sma_25, 2) if sma_25 else None,
+                "sma_99": round(sma_99, 2) if sma_99 else None
+            },
+            
+            "technical_indicators": {
+                "rsi_14": round(rsi, 2) if rsi else None,
+                "volatility_24h": round(volatility, 2),
+                "trend": trend
+            },
+            
+            "support_resistance": {
+                "recent_high_24h": round(recent_high, 2),
+                "recent_low_24h": round(recent_low, 2),
+                "distance_from_high": round((current_price - recent_high) / recent_high * 100, 2),
+                "distance_from_low": round((current_price - recent_low) / recent_low * 100, 2)
+            },
+            
+            "volume_analysis": {
+                "current_volume": round(current_volume, 2) if current_volume else 0,
+                "avg_volume_24h": round(avg_volume, 2),
+                "volume_ratio": round(volume_ratio, 2)
+            },
+            
+            # 最近10个K线的摘要（给AI看趋势）
+            "recent_candles": [
+                {
+                    "time": k['datetime_str'][-14:-3],  # 只保留日期时间部分
+                    "open": round(k['open'], 2),
+                    "high": round(k['high'], 2),
+                    "low": round(k['low'], 2),
+                    "close": round(k['close'], 2),
+                    "change": round(k['percent'], 2)
+                }
+                for k in klines[-10:]  # 最近10根K线
+            ]
+        }
+        
+        return analysis
+        
+    except Exception as e:
+        logger.error(f"Error getting market analysis for {symbol}: {e}")
+        return {
+            "symbol": symbol,
+            "error": str(e),
+            "period": period
+        }
