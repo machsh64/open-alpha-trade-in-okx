@@ -76,7 +76,7 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
         news_summary = fetch_latest_news()
         news_section = news_summary if news_summary else "No recent CoinJournal news available."
 
-        prompt = f"""You are a cryptocurrency trading AI. Based on the following portfolio and market data, decide on a trading action.
+        prompt = f"""You are a conservative cryptocurrency trading AI with risk management expertise. Based on the following portfolio and market data, decide on a trading action.
 
 Portfolio Data:
 - Cash Available: ${portfolio['cash']:.2f}
@@ -90,11 +90,18 @@ Current Market Prices:
 Latest Crypto News (CoinJournal):
 {news_section}
 
-Analyze the market and portfolio, then respond with ONLY a JSON object in this exact format:
+IMPORTANT TRADING GUIDELINES:
+1. **Be CONSERVATIVE**: Not every market check requires a trade. Only trade when you see a clear opportunity.
+2. **Prefer HOLD**: It's often better to hold and wait than to trade frequently. Frequent trading increases costs and risks.
+3. **Risk Management**: Keep target_portion_of_balance low (0.05-0.15) to avoid over-concentration.
+4. **Diversification**: If you already hold multiple positions, consider holding unless you see a strong sell signal.
+5. **Market Analysis**: Look for significant price movements or news events before deciding to buy/sell.
+
+Analyze the market and portfolio carefully, then respond with ONLY a JSON object in this exact format:
 {{
   "operation": "buy" or "sell" or "hold",
   "symbol": "BTC" or "ETH" or "SOL" or "BNB" or "XRP" or "DOGE",
-  "target_portion_of_balance": 0.2,
+  "target_portion_of_balance": 0.1,
   "reason": "Brief explanation of your decision"
 }}
 
@@ -102,8 +109,10 @@ Rules:
 - operation must be "buy", "sell", or "hold"
 - For "buy": symbol is what to buy, target_portion_of_balance is % of cash to use (0.0-1.0)
 - For "sell": symbol is what to sell, target_portion_of_balance is % of position to sell (0.0-1.0)
-- For "hold": no action taken
-- Keep target_portion_of_balance between 0.1 and 0.3 for risk management
+- For "hold": no action taken (PREFERRED if no clear signal)
+- Keep target_portion_of_balance between 0.05 and 0.2 for conservative risk management
+- Only trade when you have a STRONG reason based on market data or news
+- When in doubt, choose "hold"
 - Only choose symbols you have data for"""
 
         headers = {

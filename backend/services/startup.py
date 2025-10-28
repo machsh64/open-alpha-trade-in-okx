@@ -25,9 +25,13 @@ def initialize_services():
         setup_market_tasks()
         logger.info("Market scheduled tasks have been set up")
 
-        # Start automatic cryptocurrency trading simulation task (5-minute interval)
-        schedule_auto_trading(interval_seconds=300)
-        logger.info("Automatic cryptocurrency trading task started (5-minute interval)")
+        # Start automatic AI trading task
+        # 默认每30分钟检查一次（而不是5分钟），AI可以决定是否真的交易
+        # 可以通过环境变量 AI_TRADE_INTERVAL 来调整（单位：秒）
+        import os
+        ai_interval = int(os.getenv('AI_TRADE_INTERVAL', '1800'))  # 默认30分钟
+        schedule_auto_trading(interval_seconds=ai_interval)
+        logger.info(f"Automatic AI trading task started ({ai_interval // 60}-minute interval)")
         
         # Add price cache cleanup task (every 2 minutes)
         from services.price_cache import clear_expired_prices

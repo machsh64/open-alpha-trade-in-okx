@@ -71,7 +71,10 @@ OKX_API_SECRET=your_api_secret
 OKX_API_PASSPHRASE=your_passphrase
 OKX_SANDBOX=true  # 生产环境改为false
 
-# OpenAI配置（可选，用于AI决策）
+# AI交易配置（可选）
+AI_TRADE_INTERVAL=1800  # AI交易检查间隔（秒），默认1800（30分钟）
+
+# OpenAI配置（用于AI决策，也可以在系统中配置）
 OPENAI_API_KEY=your_openai_key
 OPENAI_BASE_URL=https://api.openai.com/v1
 ```
@@ -150,11 +153,32 @@ pnpm run dev:frontend
 
 ### AI自动交易
 
-系统会自动根据技术因子生成交易信号，在 **Arena** 页面可以查看：
+系统会定期运行AI决策引擎分析市场，在 **Arena** 页面可以查看：
 - AI决策记录
 - 持仓情况
 - 订单历史
 - 资产曲线
+
+**AI交易特点**：
+-  **检查频率**: 默认每30分钟检查一次市场（可通过环境变量 `AI_TRADE_INTERVAL` 调整）
+-  **保守策略**: AI采用保守策略，**不会每次检查都交易**，只在有明确信号时才执行
+-  **决策因素**: 基于市场价格、持仓情况、新闻资讯等多维度分析
+- ️ **风险控制**: 
+  - 单次交易不超过总资产的5-20%
+  - 倾向于选择 `hold`（不交易）而非频繁操作
+  - 避免过度集中单一币种
+
+**调整AI交易频率**：
+
+在 `backend/.env` 文件中添加：
+```env
+# AI交易检查间隔（秒）
+AI_TRADE_INTERVAL=1800  # 30分钟（默认）
+# AI_TRADE_INTERVAL=3600  # 1小时
+# AI_TRADE_INTERVAL=7200  # 2小时
+```
+
+**注意**: 即使设置为30分钟检查一次，AI也经常会选择 `hold`（不交易），实际交易频率会更低。
 
 ### OKX账户查看
 
