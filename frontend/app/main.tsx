@@ -12,11 +12,11 @@ const resolveWsUrl = () => {
   return `${protocol}//${window.location.host}/ws`
 }
 
-
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
-import Portfolio from '@/components/portfolio/Portfolio'
 import ComprehensiveView from '@/components/portfolio/ComprehensiveView'
+import OKXAccountView from '@/components/portfolio/OKXAccountView'
+import ManualTradingView from '@/components/trading/ManualTradingView'
 import { AIDecision, getAccounts } from '@/lib/api'
 
 interface User {
@@ -48,8 +48,9 @@ interface Order { id: number; order_no: string; symbol: string; name: string; ma
 interface Trade { id: number; order_id: number; account_id: number; symbol: string; name: string; market: string; side: string; price: number; quantity: number; commission: number; trade_time: string }
 
 const PAGE_TITLES: Record<string, string> = {
-  portfolio: 'Crypto Paper Trading',
-  comprehensive: 'Open Alpha Arena',
+  comprehensive: 'OKX AI Trading',
+  manual: 'Manual Trading',
+  okx: 'OKX Account',
 }
 
 function App() {
@@ -145,8 +146,6 @@ function App() {
         
         const handleError = (event: Event) => {
           console.error('WebSocket error:', event)
-          // Don't show toast for every error to avoid spam
-          // toast.error('Connection error')
         }
 
         ws.addEventListener('open', handleOpen)
@@ -162,7 +161,6 @@ function App() {
         }
       } catch (err) {
         console.error('Failed to create WebSocket:', err)
-        // Retry connection after 5 seconds
         reconnectTimer = setTimeout(connectWebSocket, 5000)
       }
     }
@@ -177,7 +175,6 @@ function App() {
       if (reconnectTimer) {
         clearTimeout(reconnectTimer)
       }
-      // Don't close the socket in cleanup to avoid issues with React StrictMode
     }
   }, [])
 
@@ -197,23 +194,7 @@ function App() {
   // Fetch accounts on mount and when settings updated
   useEffect(() => {
     refreshAccounts()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountRefreshTrigger])
-
-  const placeOrder = (payload: any) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn('WS not connected, cannot place order')
-      toast.error('Not connected to server')
-      return
-    }
-    try {
-      wsRef.current.send(JSON.stringify({ type: 'place_order', ...payload }))
-      toast('Placing order...', { icon: '📝' })
-    } catch (e) {
-      console.error(e)
-      toast.error('Failed to send order')
-    }
-  }
 
   const switchUser = (username: string) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
@@ -246,10 +227,7 @@ function App() {
   }
 
   const handleAccountUpdated = () => {
-    // Increment refresh trigger to force AccountSelector to refresh
     setAccountRefreshTrigger(prev => prev + 1)
-    
-    // Also refresh the current data snapshot
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
     }
@@ -257,54 +235,13 @@ function App() {
 
   if (!user || !account || !overview) return <div className="p-8">Connecting to trading server...</div>
 
-  const renderMainContent = () => {
-    const refreshData = () => {
-      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
-      }
+  const refreshData = () => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'get_snapshot' }))
     }
-
-    return (
-      <main className="flex-1 p-4 overflow-hidden">
-        {currentPage === 'portfolio' && (
-          <Portfolio
-            overview={overview}
-            positions={positions}
-            orders={orders}
-            trades={trades}
-            aiDecisions={aiDecisions}
-            allAssetCurves={allAssetCurves}
-            wsRef={wsRef}
-            onSwitchAccount={switchAccount}
-            onRefreshData={refreshData}
-            accountRefreshTrigger={accountRefreshTrigger}
-            accounts={accounts}
-            loadingAccounts={accountsLoading}
-          />
-        )}
-        
-        {currentPage === 'comprehensive' && (
-          <ComprehensiveView
-            overview={overview}
-            positions={positions}
-            orders={orders}
-            trades={trades}
-            aiDecisions={aiDecisions}
-            allAssetCurves={allAssetCurves}
-            wsRef={wsRef}
-            onSwitchUser={switchUser}
-            onSwitchAccount={switchAccount}
-            onRefreshData={refreshData}
-            accountRefreshTrigger={accountRefreshTrigger}
-            accounts={accounts}
-            loadingAccounts={accountsLoading}
-          />
-        )}
-      </main>
-    )
   }
 
-  const pageTitle = PAGE_TITLES[currentPage] ?? PAGE_TITLES.portfolio
+  const pageTitle = PAGE_TITLES[currentPage] ?? PAGE_TITLES.comprehensive
 
   return (
     <div className="h-screen flex overflow-hidden">
@@ -318,10 +255,34 @@ function App() {
           title={pageTitle}
           currentUser={user}
           currentAccount={account}
-          showAccountSelector={currentPage === 'portfolio' || currentPage === 'comprehensive'}
+          showAccountSelector={currentPage === 'comprehensive'}
           onUserChange={switchUser}
         />
-        {renderMainContent()}
+        <main className="flex-1 p-4 overflow-hidden">
+          {currentPage === 'comprehensive' && (
+            <ComprehensiveView
+              overview={overview}
+              positions={positions}
+              orders={orders}
+              trades={trades}
+              aiDecisions={aiDecisions}
+              allAssetCurves={allAssetCurves}
+              wsRef={wsRef}
+              onSwitchUser={switchUser}
+              onSwitchAccount={switchAccount}
+              onRefreshData={refreshData}
+              accountRefreshTrigger={accountRefreshTrigger}
+              accounts={accounts}
+              loadingAccounts={accountsLoading}
+            />
+          )}
+          {currentPage === 'manual' && (
+            <ManualTradingView />
+          )}
+          {currentPage === 'okx' && (
+            <OKXAccountView />
+          )}
+        </main>
       </div>
     </div>
   )

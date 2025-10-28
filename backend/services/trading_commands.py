@@ -1,18 +1,20 @@
 """
 Trading Commands Service - Handles order execution and trading logic
+使用OKX真实交易API执行订单
 """
 import logging
 import random
 from decimal import Decimal
 from typing import Dict, Optional, Tuple, List
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
-from database.models import Position, Account
+from database.models import Position, Account, Order, Trade
 from services.asset_calculator import calc_positions_value
 from services.market_data import get_last_price
-from services.order_matching import create_order, check_and_execute_order
+from services.okx_trading_executor import create_okx_order  # 使用OKX真实交易
 from services.ai_decision_service import (
     call_ai_for_decision, 
     save_ai_decision, 
@@ -25,6 +27,119 @@ from services.ai_decision_service import (
 logger = logging.getLogger(__name__)
 
 AI_TRADING_SYMBOLS: List[str] = ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE"]
+
+
+async def _notify_account_update(account_id: int):
+    """
+    通知WebSocket客户端账户数据已更新
+    在AI交易完成后触发快照更新
+    """
+    try:
+        from api.ws import manager, _send_snapshot
+        db = SessionLocal()
+        try:
+            await _send_snapshot(db, account_id)
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Failed to send WebSocket update for account {account_id}: {e}")
+
+
+def _save_okx_order_to_db(
+    db: Session,
+    account: Account,
+    okx_result: Dict,
+    symbol: str,
+    name: str,
+    side: str,
+    quantity: float,
+    order_type: str = "market",
+    price: Optional[float] = None
+) -> Optional[Tuple[Order, Trade]]:
+    """
+    保存OKX订单到本地数据库，以便前端显示
+    
+    Args:
+        db: 数据库会话
+        account: 账户对象
+        okx_result: OKX API返回的结果
+        symbol: 交易对符号 (e.g., "BTC-USDT-SWAP")
+        name: 币种名称 (e.g., "Bitcoin")
+        side: 'buy' or 'sell'
+        quantity: 数量
+        order_type: 'market' or 'limit'
+        price: 价格（如果是限价单）
+    
+    Returns:
+        (Order, Trade) 元组，如果保存失败则返回None
+    """
+    try:
+        # 生成唯一订单号
+        import uuid
+        order_no = f"OKX-{uuid.uuid4().hex[:16].upper()}"
+        
+        # 从OKX结果中提取信息
+        okx_order_id = okx_result.get('order_id')
+        okx_price = okx_result.get('price')  # OKX返回的实际成交价
+        
+        # 如果OKX返回了价格，使用OKX的价格；否则查询市场价
+        if okx_price:
+            execution_price = float(okx_price)
+        else:
+            # 查询当前市场价（去掉-USDT-SWAP后缀）
+            base_symbol = symbol.split('-')[0]
+            try:
+                execution_price = get_last_price(base_symbol, "CRYPTO")
+            except:
+                # 如果价格查询失败，使用传入的价格或默认值
+                execution_price = price if price else 0.0
+        
+        # 创建订单记录
+        order = Order(
+            account_id=account.id,
+            order_no=order_no,
+            symbol=symbol,
+            name=name,
+            market="CRYPTO",
+            side=side.upper(),
+            order_type=order_type.upper(),
+            price=Decimal(str(execution_price)) if execution_price else None,
+            quantity=Decimal(str(quantity)),
+            filled_quantity=Decimal(str(quantity)),  # 市价单立即完全成交
+            status="FILLED",  # OKX成功返回表示已成交
+            created_at=datetime.now()
+        )
+        db.add(order)
+        db.flush()  # 刷新以获取order.id
+        
+        # 创建成交记录
+        commission = Decimal(str(quantity * execution_price * 0.0005))  # 假设手续费率0.05%
+        trade = Trade(
+            order_id=order.id,
+            account_id=account.id,
+            symbol=symbol,
+            name=name,
+            market="CRYPTO",
+            side=side.upper(),
+            price=Decimal(str(execution_price)),
+            quantity=Decimal(str(quantity)),
+            commission=commission,
+            trade_time=datetime.now()
+        )
+        db.add(trade)
+        db.commit()
+        
+        logger.info(
+            f"✅ Saved OKX order to database: order_id={order.id}, "
+            f"trade_id={trade.id}, okx_order_id={okx_order_id}"
+        )
+        
+        return (order, trade)
+        
+    except Exception as e:
+        logger.error(f"Failed to save OKX order to database: {e}", exc_info=True)
+        db.rollback()
+        return None
 
 
 def _get_market_prices(symbols: List[str]) -> Dict[str, float]:
@@ -196,38 +311,60 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 else:
                     continue
 
-                # Create and execute order
+                # 直接通过OKX API执行订单（真实交易）
                 name = SUPPORTED_SYMBOLS[symbol]
+                okx_symbol = f"{symbol}-USDT-SWAP"  # OKX永续合约格式
                 
-                order = create_order(
-                    db=db,
-                    account=account,
-                    symbol=symbol,
-                    name=name,
-                    side=side,
-                    order_type="MARKET",
-                    price=None,
-                    quantity=quantity,
+                logger.info(f"Executing OKX order: {side} {quantity} {okx_symbol}")
+                
+                # 调用OKX API下单
+                result = create_okx_order(
+                    symbol=okx_symbol,
+                    side=side.lower(),
+                    amount=quantity,
+                    order_type="market",  # AI交易使用市价单
+                    price=None
                 )
-
-                db.commit()
-                db.refresh(order)
-
-                executed = check_and_execute_order(db, order)
-                if executed:
-                    db.refresh(order)
-                    logger.info(
-                        f"AI order executed: account={account.name} {side} {symbol} {order.order_no} "
-                        f"quantity={quantity} reason='{reason}'"
-                    )
-                else:
-                    logger.info(
-                        f"AI order created but not executed: account={account.name} {side} {symbol} "
-                        f"quantity={quantity} order_id={order.order_no} reason='{reason}'"
-                    )
                 
-                # Save decision with final execution status (only called once)
-                save_ai_decision(db, account, decision, portfolio, executed=executed, order_id=order.id)
+                if result.get('success'):
+                    logger.info(
+                        f"✅ OKX AI order executed: {side} {quantity} {symbol} "
+                        f"order_id={result.get('order_id')} reason='{reason}'"
+                    )
+                    
+                    # 保存订单到本地数据库，以便前端显示
+                    saved = _save_okx_order_to_db(
+                        db=db,
+                        account=account,
+                        okx_result=result,
+                        symbol=okx_symbol,
+                        name=name,
+                        side=side.lower(),
+                        quantity=quantity,
+                        order_type="market"
+                    )
+                    
+                    # 保存AI决策记录（executed=True）
+                    order_id = saved[0].id if saved else None
+                    save_ai_decision(db, account, decision, portfolio, executed=True, order_id=order_id)
+                    
+                    # 触发WebSocket通知，让前端实时更新
+                    if saved:
+                        try:
+                            from api.ws import manager
+                            import asyncio
+                            # 在后台触发快照更新
+                            asyncio.create_task(_notify_account_update(account.id))
+                        except Exception as notify_err:
+                            logger.warning(f"Failed to trigger WebSocket notification: {notify_err}")
+                    
+                else:
+                    logger.error(
+                        f"❌ OKX AI order failed: {side} {quantity} {symbol} "
+                        f"error={result.get('error')}"
+                    )
+                    # 保存失败的决策
+                    save_ai_decision(db, account, decision, portfolio, executed=False, order_id=None)
 
             except Exception as account_err:
                 logger.error(f"AI-driven order placement failed for account {account.name}: {account_err}", exc_info=True)
@@ -241,64 +378,12 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
 
 
 def place_random_crypto_order(max_ratio: float = 0.2) -> None:
-    """Legacy random order placement (kept for backward compatibility)"""
-    db = SessionLocal()
-    try:
-        accounts = get_active_ai_accounts(db)
-        if not accounts:
-            logger.debug("No available accounts, skipping auto order placement")
-            return
-        
-        # For legacy compatibility, just pick a random account from the list
-        account = random.choice(accounts)
-
-        positions_value = calc_positions_value(db, account.id)
-        total_assets = positions_value + float(account.current_cash)
-
-        if total_assets <= 0:
-            logger.debug("Account %s total assets non-positive, skipping auto order placement", account.name)
-            return
-
-        max_order_value = total_assets * max_ratio
-        if max_order_value <= 0:
-            logger.debug("Account %s maximum order amount is 0, skipping", account.name)
-            return
-
-        symbol = random.choice(list(SUPPORTED_SYMBOLS.keys()))
-        side_info = _select_side(db, account, symbol, max_order_value)
-        if not side_info:
-            logger.debug("Account %s has no executable direction for %s, skipping", account.name, symbol)
-            return
-
-        side, quantity = side_info
-        name = SUPPORTED_SYMBOLS[symbol]
-
-        order = create_order(
-            db=db,
-            account=account,
-            symbol=symbol,
-            name=name,
-            side=side,
-            order_type="MARKET",
-            price=None,
-            quantity=quantity,
-        )
-
-        db.commit()
-        db.refresh(order)
-
-        executed = check_and_execute_order(db, order)
-        if executed:
-            db.refresh(order)
-            logger.info("Auto order executed: account=%s %s %s %s quantity=%s", account.name, side, symbol, order.order_no, quantity)
-        else:
-            logger.info("Auto order created: account=%s %s %s quantity=%s order_id=%s", account.name, side, symbol, quantity, order.order_no)
-
-    except Exception as err:
-        logger.error("Auto order placement failed: %s", err)
-        db.rollback()
-    finally:
-        db.close()
+    """
+    Legacy random order placement - DEPRECATED
+    已废弃：现在所有交易都通过OKX真实API执行，不再支持随机模拟交易
+    """
+    logger.warning("place_random_crypto_order is deprecated. All trading now uses OKX API via AI decisions.")
+    pass  # 不再执行随机模拟交易
 
 
 AUTO_TRADE_JOB_ID = "auto_crypto_trade"

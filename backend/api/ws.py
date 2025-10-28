@@ -365,7 +365,9 @@ async def _send_snapshot(db: Session, account_id: int):
 
 
 async def websocket_endpoint(websocket: WebSocket):
+    logging.info(f"WebSocket connection attempt from {websocket.client}")
     await websocket.accept()
+    logging.info("WebSocket connection accepted")
     account_id: int | None = None
     user_id: int | None = None  # Initialize user_id to avoid UnboundLocalError
 
@@ -377,6 +379,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 
             try:
                 data = await websocket.receive_text()
+                logging.info(f"WebSocket received message: {data[:100]}")  # Log first 100 chars
             except WebSocketDisconnect:
                 # Client disconnected gracefully
                 break

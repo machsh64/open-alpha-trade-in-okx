@@ -284,3 +284,142 @@ export const deleteAIAccount = (id: number) => {
   console.warn("deleteAIAccount is deprecated. Use default mode or new trading account APIs.")
   return Promise.resolve()
 }
+
+// OKX Account Data API functions
+export interface OKXBalance {
+  currency: string
+  total: number
+  free: number
+  used: number
+}
+
+export interface OKXPosition {
+  symbol: string
+  side: string
+  contracts: number
+  contractSize: number
+  notional: number
+  leverage: number
+  unrealizedPnl: number
+  percentage: number
+  entryPrice: number
+  markPrice: number
+  liquidationPrice: number
+  marginMode: string
+  timestamp: number
+  datetime: string
+}
+
+export interface OKXOrder {
+  id: string
+  clientOrderId?: string
+  symbol: string
+  type: string
+  side: string
+  price: number
+  amount: number
+  filled: number
+  remaining: number
+  status: string
+  timestamp: number
+  datetime: string
+}
+
+export interface OKXTrade {
+  id: string
+  order: string
+  symbol: string
+  type: string
+  side: string
+  price: number
+  amount: number
+  cost: number
+  fee?: any
+  timestamp: number
+  datetime: string
+}
+
+export interface OKXAccountSummary {
+  total_balance_usdt: number
+  positions_value: number
+  unrealized_pnl: number
+  positions_count: number
+  open_orders_count: number
+  free_usdt: number
+  used_usdt: number
+}
+
+export async function getOKXStatus() {
+  const response = await apiRequest('/okx-account/status')
+  return response.json()
+}
+
+export async function getOKXBalance(): Promise<{ success: boolean; assets: OKXBalance[] }> {
+  const response = await apiRequest('/okx-account/balance')
+  return response.json()
+}
+
+export async function getOKXPositions(symbol?: string): Promise<{ success: boolean; positions: OKXPosition[]; count: number }> {
+  const endpoint = symbol ? `/okx-account/positions?symbol=${symbol}` : '/okx-account/positions'
+  const response = await apiRequest(endpoint)
+  return response.json()
+}
+
+export async function getOKXOpenOrders(symbol?: string): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
+  const endpoint = symbol ? `/okx-account/orders/open?symbol=${symbol}` : '/okx-account/orders/open'
+  const response = await apiRequest(endpoint)
+  return response.json()
+}
+
+export async function getOKXOrderHistory(symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
+  const params = new URLSearchParams()
+  if (symbol) params.append('symbol', symbol)
+  params.append('limit', limit.toString())
+  params.append('days', days.toString())
+  
+  const response = await apiRequest(`/okx-account/orders/history?${params.toString()}`)
+  return response.json()
+}
+
+export async function getOKXTrades(symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; trades: OKXTrade[]; count: number }> {
+  const params = new URLSearchParams()
+  if (symbol) params.append('symbol', symbol)
+  params.append('limit', limit.toString())
+  params.append('days', days.toString())
+  
+  const response = await apiRequest(`/okx-account/trades?${params.toString()}`)
+  return response.json()
+}
+
+export async function getOKXAccountSummary(): Promise<{ success: boolean; summary: OKXAccountSummary }> {
+  const response = await apiRequest('/okx-account/summary')
+  return response.json()
+}
+
+export interface PlaceOKXOrderRequest {
+  symbol: string
+  side: 'buy' | 'sell'
+  quantity: number  // 后端期待的字段名
+  orderType: 'market' | 'limit'
+  price?: number
+}
+
+export async function placeOKXOrder(orderRequest: PlaceOKXOrderRequest): Promise<{ success: boolean; order_id?: string; error?: string }> {
+  // 转换前端的驼峰命名为后端的snake_case
+  const backendRequest = {
+    symbol: orderRequest.symbol,
+    side: orderRequest.side,
+    quantity: orderRequest.quantity,
+    order_type: orderRequest.orderType,
+    price: orderRequest.price
+  }
+  
+  const response = await apiRequest('/okx-account/order', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(backendRequest)
+  })
+  return response.json()
+}

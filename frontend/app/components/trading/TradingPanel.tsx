@@ -22,7 +22,7 @@ interface TradingPanelProps {
 
 export default function TradingPanel({ onPlace, user, positions = [], lastPrices = {} }: TradingPanelProps) {
   const [symbol, setSymbol] = useState('BTC')
-  const [market] = useState<'US'>('US')
+  const [market, setMarket] = useState<'US' | 'CRYPTO'>('CRYPTO')  // 默认使用OKX
   const [orderType, setOrderType] = useState<'MARKET' | 'LIMIT'>('LIMIT')
   const [price, setPrice] = useState<number>(190)
   const [quantity, setQuantity] = useState<number>(2)
@@ -193,6 +193,43 @@ export default function TradingPanel({ onPlace, user, positions = [], lastPrices
 
   return (
     <div className="space-y-4 w-[320px] flex-shrink-0">
+      {/* Market Selector */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium">Trading Market</label>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setMarket('CRYPTO')}
+            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              market === 'CRYPTO'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+            }`}
+          >
+            OKX Real
+          </button>
+          <button
+            onClick={() => setMarket('US')}
+            className={`flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              market === 'US'
+                ? 'bg-primary text-primary-foreground'
+                : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
+            }`}
+          >
+            Paper Trade
+          </button>
+        </div>
+        {market === 'CRYPTO' && (
+          <p className="text-xs text-muted-foreground">
+            🔴 Real trading on OKX exchange
+          </p>
+        )}
+        {market === 'US' && (
+          <p className="text-xs text-muted-foreground">
+            📝 Simulated trading for testing
+          </p>
+        )}
+      </div>
+
       <OrderForm
         symbol={symbol}
         orderType={orderType}

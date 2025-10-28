@@ -10,6 +10,7 @@ from sqlalchemy import func
 from typing import Dict, Set, Callable, Optional, List
 import logging
 from datetime import date, datetime
+import asyncio
 
 from database.connection import SessionLocal
 from database.models import Position, CryptoPrice
@@ -63,7 +64,7 @@ class TaskScheduler:
             return
         
         self.scheduler.add_job(
-            func=self._execute_account_snapshot,
+            func=self._execute_account_snapshot_sync,  # 使用同步wrapper
             trigger=IntervalTrigger(seconds=interval_seconds),
             args=[account_id],
             id=job_id,
@@ -147,6 +148,29 @@ class TaskScheduler:
                 'func_name': job.func.__name__ if hasattr(job.func, '__name__') else str(job.func)
             })
         return jobs
+
+    def _execute_account_snapshot_sync(self, account_id: int):
+        """
+        Synchronous wrapper for async _execute_account_snapshot
+        This is needed because APScheduler runs in sync context
+        """
+        try:
+            # Get or create event loop
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+            
+            # Run async function in the loop
+            if loop.is_running():
+                # If loop is already running, create a task
+                asyncio.create_task(self._execute_account_snapshot(account_id))
+            else:
+                # Otherwise run it synchronously
+                loop.run_until_complete(self._execute_account_snapshot(account_id))
+        except Exception as e:
+            logger.error(f"Error in snapshot sync wrapper for account {account_id}: {e}")
 
     async def _execute_account_snapshot(self, account_id: int):
         """

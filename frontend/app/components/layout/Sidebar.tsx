@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { PieChart, Settings, TrendingUp, BarChart3 } from 'lucide-react'
+import { useState } from 'react'
+import { BarChart3, Settings, Wallet, TrendingUp } from 'lucide-react'
 import SettingsDialog from './SettingsDialog'
 
 interface SidebarProps {
@@ -23,21 +23,33 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
                 : 'hover:bg-muted text-muted-foreground'
             }`}
             onClick={() => onPageChange?.('comprehensive')}
-            title="Open Alpha Arena"
+            title="Trading Arena"
           >
             <BarChart3 className="w-5 h-5" />
           </button>
 
           <button
             className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
-              currentPage === 'portfolio'
+              currentPage === 'manual'
                 ? 'bg-secondary/80 text-secondary-foreground'
                 : 'hover:bg-muted text-muted-foreground'
             }`}
-            onClick={() => onPageChange?.('portfolio')}
-            title="Portfolio"
+            onClick={() => onPageChange?.('manual')}
+            title="Manual Trading"
           >
-            <PieChart className="w-5 h-5" />
+            <TrendingUp className="w-5 h-5" />
+          </button>
+
+          <button
+            className={`flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+              currentPage === 'okx'
+                ? 'bg-secondary/80 text-secondary-foreground'
+                : 'hover:bg-muted text-muted-foreground'
+            }`}
+            onClick={() => onPageChange?.('okx')}
+            title="OKX Account"
+          >
+            <Wallet className="w-5 h-5" />
           </button>
 
           <button
@@ -58,34 +70,34 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
                 : 'hover:bg-muted text-muted-foreground'
             }`}
             onClick={() => onPageChange?.('comprehensive')}
-            title="Open Alpha Arena"
+            title="Trading Arena"
           >
             <BarChart3 className="w-5 h-5" />
-            <span className="text-xs mt-1">Open Alpha Arena</span>
+            <span className="text-xs mt-1">Arena</span>
           </button>
           <button
             className={`flex flex-col items-center justify-center w-12 h-12 rounded-lg transition-colors ${
-              currentPage === 'portfolio'
+              currentPage === 'manual'
                 ? 'bg-secondary/80 text-secondary-foreground'
                 : 'hover:bg-muted text-muted-foreground'
             }`}
-            onClick={() => onPageChange?.('portfolio')}
-            title="Portfolio"
-          >
-            <PieChart className="w-5 h-5" />
-            <span className="text-xs mt-1">Portfolio</span>
-          </button>
-          <button
-            className={`flex flex-col items-center justify-center w-12 h-12 rounded-lg transition-colors ${
-              currentPage === 'asset-curve'
-                ? 'bg-secondary/80 text-secondary-foreground'
-                : 'hover:bg-muted text-muted-foreground'
-            }`}
-            onClick={() => onPageChange?.('asset-curve')}
-            title="Asset Curve"
+            onClick={() => onPageChange?.('manual')}
+            title="Manual Trading"
           >
             <TrendingUp className="w-5 h-5" />
-            <span className="text-xs mt-1">Curve</span>
+            <span className="text-xs mt-1">Trade</span>
+          </button>
+          <button
+            className={`flex flex-col items-center justify-center w-12 h-12 rounded-lg transition-colors ${
+              currentPage === 'okx'
+                ? 'bg-secondary/80 text-secondary-foreground'
+                : 'hover:bg-muted text-muted-foreground'
+            }`}
+            onClick={() => onPageChange?.('okx')}
+            title="OKX Account"
+          >
+            <Wallet className="w-5 h-5" />
+            <span className="text-xs mt-1">OKX</span>
           </button>
           <button
             className="flex flex-col items-center justify-center w-12 h-12 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
