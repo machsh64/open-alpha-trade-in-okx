@@ -55,6 +55,10 @@ async def list_user_accounts(session_token: str, db: Session = Depends(get_db)):
                 model=account.model,
                 base_url=account.base_url,
                 api_key="****" + account.api_key[-4:] if account.api_key else "",  # Mask API key
+                okx_api_key="****" + account.okx_api_key[-4:] if account.okx_api_key else None,  # Mask OKX API key
+                okx_secret="****" if account.okx_secret else None,  # Completely mask secret
+                okx_passphrase="****" if account.okx_passphrase else None,  # Completely mask passphrase
+                okx_sandbox=account.okx_sandbox or "true",
                 initial_capital=float(account.initial_capital),
                 current_cash=float(account.current_cash),
                 frozen_cash=float(account.frozen_cash),
@@ -95,7 +99,11 @@ async def create_trading_account(
             initial_capital=account_data.initial_capital,
             model=account_data.model,
             base_url=account_data.base_url,
-            api_key=account_data.api_key
+            api_key=account_data.api_key,
+            okx_api_key=account_data.okx_api_key,
+            okx_secret=account_data.okx_secret,
+            okx_passphrase=account_data.okx_passphrase,
+            okx_sandbox=account_data.okx_sandbox
         )
         
         return AccountOut(
@@ -105,6 +113,10 @@ async def create_trading_account(
             model=account.model,
             base_url=account.base_url,
             api_key="****" + account.api_key[-4:] if account.api_key else "",
+            okx_api_key="****" + account.okx_api_key[-4:] if account.okx_api_key else None,
+            okx_secret="****" if account.okx_secret else None,
+            okx_passphrase="****" if account.okx_passphrase else None,
+            okx_sandbox=account.okx_sandbox or "true",
             initial_capital=float(account.initial_capital),
             current_cash=float(account.current_cash),
             frozen_cash=float(account.frozen_cash),
@@ -143,6 +155,10 @@ async def get_account_details(
             model=account.model,
             base_url=account.base_url,
             api_key="****" + account.api_key[-4:] if account.api_key else "",
+            okx_api_key="****" + account.okx_api_key[-4:] if account.okx_api_key else None,
+            okx_secret="****" if account.okx_secret else None,
+            okx_passphrase="****" if account.okx_passphrase else None,
+            okx_sandbox=account.okx_sandbox or "true",
             initial_capital=float(account.initial_capital),
             current_cash=float(account.current_cash),
             frozen_cash=float(account.frozen_cash),
@@ -188,7 +204,11 @@ async def update_trading_account(
             name=account_data.name,
             model=account_data.model,
             base_url=account_data.base_url,
-            api_key=account_data.api_key
+            api_key=account_data.api_key,
+            okx_api_key=account_data.okx_api_key,
+            okx_secret=account_data.okx_secret,
+            okx_passphrase=account_data.okx_passphrase,
+            okx_sandbox=account_data.okx_sandbox
         )
         
         return AccountOut(
@@ -198,6 +218,10 @@ async def update_trading_account(
             model=updated_account.model,
             base_url=updated_account.base_url,
             api_key="****" + updated_account.api_key[-4:] if updated_account.api_key else "",
+            okx_api_key="****" + updated_account.okx_api_key[-4:] if updated_account.okx_api_key else None,
+            okx_secret="****" if updated_account.okx_secret else None,
+            okx_passphrase="****" if updated_account.okx_passphrase else None,
+            okx_sandbox=updated_account.okx_sandbox or "true",
             initial_capital=float(updated_account.initial_capital),
             current_cash=float(updated_account.current_cash),
             frozen_cash=float(updated_account.frozen_cash),
@@ -256,6 +280,10 @@ async def get_or_create_default(
             model=account.model,
             base_url=account.base_url,
             api_key="****" + account.api_key[-4:] if account.api_key else "",
+            okx_api_key="****" + account.okx_api_key[-4:] if account.okx_api_key else None,
+            okx_secret="****" if account.okx_secret else None,
+            okx_passphrase="****" if account.okx_passphrase else None,
+            okx_sandbox=account.okx_sandbox or "true",
             initial_capital=float(account.initial_capital),
             current_cash=float(account.current_cash),
             frozen_cash=float(account.frozen_cash),

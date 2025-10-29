@@ -3,12 +3,15 @@ OKX Account API Routes
 显示OKX账户的真实数据：余额、持仓、订单、交易记录
 """
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import logging
 
+from database.connection import SessionLocal
+from database.models import Account
 from services.okx_market_data import (
     fetch_balance_okx,
     fetch_positions_okx,
@@ -17,13 +20,36 @@ from services.okx_market_data import (
     fetch_my_trades_okx
 )
 from services.okx_trading_executor import (
-    is_okx_trading_enabled,
     create_okx_order
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/okx-account", tags=["okx-account"])
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def get_account_with_okx(db: Session, account_id: int) -> Account:
+    """Get account and verify OKX configuration"""
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.is_active == "true"
+    ).first()
+    
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    
+    if not account.okx_api_key or not account.okx_secret or not account.okx_passphrase:
+        raise HTTPException(status_code=400, detail="OKX API not configured for this account")
+    
+    return account
 
 
 class OKXOrderRequest(BaseModel):
@@ -36,29 +62,38 @@ class OKXOrderRequest(BaseModel):
 
 
 @router.get("/status")
-async def get_okx_status():
+async def get_okx_status(account_id: int, db: Session = Depends(get_db)):
     """检查OKX API是否已配置"""
-    is_enabled = is_okx_trading_enabled()
-    return {
-        "okx_enabled": is_enabled,
-        "message": "OKX API is configured and ready" if is_enabled else "OKX API credentials not configured",
-        "timestamp": datetime.utcnow().isoformat()
-    }
+    try:
+        account = get_account_with_okx(db, account_id)
+        return {
+            "okx_enabled": True,
+            "message": "OKX API is configured and ready",
+            "sandbox": account.okx_sandbox == "true",
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException as e:
+        if e.status_code == 400:
+            return {
+                "okx_enabled": False,
+                "message": e.detail,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        raise
 
 
 @router.get("/balance")
-async def get_okx_balance():
+async def get_okx_balance(account_id: int, db: Session = Depends(get_db)):
     """
     获取OKX账户余额
     
     Returns:
         余额信息，包括可用余额、冻结余额、总余额
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
-        balance = fetch_balance_okx()
+        balance = fetch_balance_okx(account=account)
         
         # 提取有余额的币种
         assets = []
@@ -88,21 +123,21 @@ async def get_okx_balance():
 
 
 @router.get("/positions")
-async def get_okx_positions(symbol: Optional[str] = None):
+async def get_okx_positions(account_id: int, symbol: Optional[str] = None, db: Session = Depends(get_db)):
     """
     获取OKX持仓信息
     
     Args:
+        account_id: 账户ID
         symbol: 可选，指定交易对（如BTC）
         
     Returns:
         持仓列表
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
-        positions = fetch_positions_okx(symbol)
+        positions = fetch_positions_okx(symbol, account=account)
         
         # 格式化持仓数据
         formatted_positions = []
@@ -144,21 +179,21 @@ async def get_okx_positions(symbol: Optional[str] = None):
 
 
 @router.get("/orders/open")
-async def get_okx_open_orders(symbol: Optional[str] = None):
+async def get_okx_open_orders(account_id: int, symbol: Optional[str] = None, db: Session = Depends(get_db)):
     """
     获取OKX未完成订单
     
     Args:
+        account_id: 账户ID
         symbol: 可选，指定交易对（如BTC）
         
     Returns:
         未完成订单列表
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
-        orders = fetch_open_orders_okx(symbol)
+        orders = fetch_open_orders_okx(symbol, account=account)
         
         # 格式化订单数据
         formatted_orders = []
@@ -192,14 +227,17 @@ async def get_okx_open_orders(symbol: Optional[str] = None):
 
 @router.get("/orders/history")
 async def get_okx_order_history(
+    account_id: int,
     symbol: Optional[str] = None,
     limit: int = 100,
-    days: int = 7
+    days: int = 7,
+    db: Session = Depends(get_db)
 ):
     """
     获取OKX历史订单
     
     Args:
+        account_id: 账户ID
         symbol: 可选，指定交易对（如BTC）
         limit: 返回数量限制
         days: 查询最近N天的订单
@@ -207,14 +245,13 @@ async def get_okx_order_history(
     Returns:
         历史订单列表
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
         # 计算起始时间戳（毫秒）
         since = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
         
-        orders = fetch_closed_orders_okx(symbol, since, limit)
+        orders = fetch_closed_orders_okx(symbol, since, limit, account=account)
         
         # 格式化订单数据
         formatted_orders = []
@@ -252,14 +289,17 @@ async def get_okx_order_history(
 
 @router.get("/trades")
 async def get_okx_trades(
+    account_id: int,
     symbol: Optional[str] = None,
     limit: int = 100,
-    days: int = 7
+    days: int = 7,
+    db: Session = Depends(get_db)
 ):
     """
     获取OKX交易记录
     
     Args:
+        account_id: 账户ID
         symbol: 可选，指定交易对（如BTC）
         limit: 返回数量限制
         days: 查询最近N天的交易
@@ -267,14 +307,13 @@ async def get_okx_trades(
     Returns:
         交易记录列表
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
         # 计算起始时间戳（毫秒）
         since = int((datetime.utcnow() - timedelta(days=days)).timestamp() * 1000)
         
-        trades = fetch_my_trades_okx(symbol, since, limit)
+        trades = fetch_my_trades_okx(symbol, since, limit, account=account)
         
         # 格式化交易数据
         formatted_trades = []
@@ -307,25 +346,24 @@ async def get_okx_trades(
 
 
 @router.get("/summary")
-async def get_okx_account_summary():
+async def get_okx_account_summary(account_id: int, db: Session = Depends(get_db)):
     """
     获取OKX账户概览
     
     Returns:
         账户概览，包括余额、持仓、订单统计
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
         # 获取余额
-        balance = fetch_balance_okx()
+        balance = fetch_balance_okx(account=account)
         
         # 获取持仓
-        positions = fetch_positions_okx()
+        positions = fetch_positions_okx(account=account)
         
         # 获取未完成订单
-        open_orders = fetch_open_orders_okx()
+        open_orders = fetch_open_orders_okx(account=account)
         
         # 计算总资产（USDT计价）
         total_usdt = float(balance['total'].get('USDT', 0))
@@ -356,18 +394,18 @@ async def get_okx_account_summary():
 
 
 @router.post("/order")
-async def place_okx_order(order_request: OKXOrderRequest):
+async def place_okx_order(account_id: int, order_request: OKXOrderRequest, db: Session = Depends(get_db)):
     """
     在OKX上下单
     
     Args:
+        account_id: 账户ID
         order_request: 订单请求参数
         
     Returns:
         订单结果
     """
-    if not is_okx_trading_enabled():
-        raise HTTPException(status_code=400, detail="OKX API not configured")
+    account = get_account_with_okx(db, account_id)
     
     try:
         # 验证参数

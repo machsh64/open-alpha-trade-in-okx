@@ -30,12 +30,20 @@ interface AIAccount extends TradingAccount {
   model?: string
   base_url?: string
   api_key?: string
+  okx_api_key?: string
+  okx_secret?: string
+  okx_passphrase?: string
+  okx_sandbox?: string
 }
 
 interface AIAccountCreate extends TradingAccountCreate {
   model?: string
   base_url?: string
   api_key?: string
+  okx_api_key?: string
+  okx_secret?: string
+  okx_passphrase?: string
+  okx_sandbox?: string
 }
 
 export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }: SettingsDialogProps) {
@@ -51,12 +59,20 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
     model: '',
     base_url: '',
     api_key: 'default-key-please-update-in-settings',
+    okx_api_key: '',
+    okx_secret: '',
+    okx_passphrase: '',
+    okx_sandbox: 'true',
   })
   const [editAccount, setEditAccount] = useState<AIAccountCreate>({
     name: '',
     model: '',
     base_url: '',
     api_key: 'default-key-please-update-in-settings',
+    okx_api_key: '',
+    okx_secret: '',
+    okx_passphrase: '',
+    okx_sandbox: 'true',
   })
 
   const loadAccounts = async () => {
@@ -126,7 +142,16 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
 
       console.log('Creating account with data:', newAccount)
       await createAccount(newAccount)
-      setNewAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings' })
+      setNewAccount({ 
+        name: '', 
+        model: '', 
+        base_url: '', 
+        api_key: 'default-key-please-update-in-settings',
+        okx_api_key: '',
+        okx_secret: '',
+        okx_passphrase: '',
+        okx_sandbox: 'true',
+      })
       setShowAddForm(false)
       await loadAccounts()
 
@@ -197,7 +222,16 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
       console.log('Updating account with data:', editAccount)
       await updateAccount(editingId, editAccount)
       setEditingId(null)
-      setEditAccount({ name: '', model: '', base_url: '', api_key: '' })
+      setEditAccount({ 
+        name: '', 
+        model: '', 
+        base_url: '', 
+        api_key: '',
+        okx_api_key: '',
+        okx_secret: '',
+        okx_passphrase: '',
+        okx_sandbox: 'true',
+      })
       setTestResult(null)
       await loadAccounts()
       
@@ -224,12 +258,25 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
       model: account.model || '',
       base_url: account.base_url || '',
       api_key: account.api_key || '',
+      okx_api_key: account.okx_api_key || '',
+      okx_secret: account.okx_secret || '',
+      okx_passphrase: account.okx_passphrase || '',
+      okx_sandbox: account.okx_sandbox || 'true',
     })
   }
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings' })
+    setEditAccount({ 
+      name: '', 
+      model: '', 
+      base_url: '', 
+      api_key: 'default-key-please-update-in-settings',
+      okx_api_key: '',
+      okx_secret: '',
+      okx_passphrase: '',
+      okx_sandbox: 'true',
+    })
     setTestResult(null)
     setError(null)
   }
@@ -273,6 +320,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                   <div key={account.id} className="border rounded-lg p-4">
                     {editingId === account.id ? (
                       <div className="space-y-3">
+                        <div className="font-medium text-sm text-gray-700 mb-2">AI Model Configuration</div>
                         <div className="grid grid-cols-2 gap-3">
                           <Input
                             placeholder="Account name"
@@ -296,6 +344,43 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                           value={editAccount.api_key || ''}
                           onChange={(e) => setEditAccount({ ...editAccount, api_key: e.target.value })}
                         />
+                        
+                        {/* OKX Configuration */}
+                        <div className="border-t pt-3 mt-3">
+                          <div className="font-medium text-sm text-gray-700 mb-2">OKX Trading Configuration</div>
+                          <div className="space-y-3">
+                            <Input
+                              placeholder="OKX API Key"
+                              type="password"
+                              value={editAccount.okx_api_key || ''}
+                              onChange={(e) => setEditAccount({ ...editAccount, okx_api_key: e.target.value })}
+                            />
+                            <Input
+                              placeholder="OKX Secret"
+                              type="password"
+                              value={editAccount.okx_secret || ''}
+                              onChange={(e) => setEditAccount({ ...editAccount, okx_secret: e.target.value })}
+                            />
+                            <Input
+                              placeholder="OKX Passphrase"
+                              type="password"
+                              value={editAccount.okx_passphrase || ''}
+                              onChange={(e) => setEditAccount({ ...editAccount, okx_passphrase: e.target.value })}
+                            />
+                            <div className="flex items-center gap-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={editAccount.okx_sandbox === 'true'}
+                                  onChange={(e) => setEditAccount({ ...editAccount, okx_sandbox: e.target.checked ? 'true' : 'false' })}
+                                  className="rounded"
+                                />
+                                <span className="text-sm text-gray-700">Use OKX Sandbox Environment</span>
+                              </label>
+                            </div>
+                          </div>
+                        </div>
+                        
                         {testResult && (
                           <div className={`text-xs p-2 rounded ${
                             testResult.includes('❌') 
@@ -331,9 +416,11 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                               API Key: {'*'.repeat(Math.max(0, (account.api_key?.length || 0) - 4))}{account.api_key?.slice(-4) || '****'}
                             </div>
                           )}
-                          <div className="text-xs text-muted-foreground">
-                            Cash: ${account.current_cash?.toLocaleString() || '0'}
-                          </div>
+                          {account.okx_api_key && (
+                            <div className="text-xs text-muted-foreground">
+                              OKX Configured: ✅ ({account.okx_sandbox === 'true' ? 'Sandbox' : 'Live'})
+                            </div>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -357,6 +444,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
             <div className="space-y-4 border-t pt-4">
               <h3 className="text-lg font-medium">Add New Account</h3>
               <div className="space-y-3">
+                <div className="font-medium text-sm text-gray-700 mb-2">AI Model Configuration</div>
                 <div className="grid grid-cols-2 gap-3">
                   <Input
                     placeholder="Account name"
@@ -380,6 +468,43 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated }:
                   value={newAccount.api_key || ''}
                   onChange={(e) => setNewAccount({ ...newAccount, api_key: e.target.value })}
                 />
+                
+                {/* OKX Configuration */}
+                <div className="border-t pt-3 mt-3">
+                  <div className="font-medium text-sm text-gray-700 mb-2">OKX Trading Configuration (Optional)</div>
+                  <div className="space-y-3">
+                    <Input
+                      placeholder="OKX API Key"
+                      type="password"
+                      value={newAccount.okx_api_key || ''}
+                      onChange={(e) => setNewAccount({ ...newAccount, okx_api_key: e.target.value })}
+                    />
+                    <Input
+                      placeholder="OKX Secret"
+                      type="password"
+                      value={newAccount.okx_secret || ''}
+                      onChange={(e) => setNewAccount({ ...newAccount, okx_secret: e.target.value })}
+                    />
+                    <Input
+                      placeholder="OKX Passphrase"
+                      type="password"
+                      value={newAccount.okx_passphrase || ''}
+                      onChange={(e) => setNewAccount({ ...newAccount, okx_passphrase: e.target.value })}
+                    />
+                    <div className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newAccount.okx_sandbox === 'true'}
+                          onChange={(e) => setNewAccount({ ...newAccount, okx_sandbox: e.target.checked ? 'true' : 'false' })}
+                          className="rounded"
+                        />
+                        <span className="text-sm text-gray-700">Use OKX Sandbox Environment</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+                
                 <div className="flex gap-2">
                   <Button onClick={handleCreateAccount} disabled={loading}>
                     Test and Create

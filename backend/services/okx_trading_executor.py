@@ -275,19 +275,71 @@ okx_trading_executor = OKXTradingExecutor()
 
 # 便捷函数
 def create_okx_order(symbol: str, side: str, amount: float, order_type: str = "market", 
-                     price: Optional[float] = None, params: Optional[Dict] = None) -> Dict[str, Any]:
-    """创建OKX订单"""
-    return okx_trading_executor.create_order(symbol, side, amount, order_type, price, params)
+                     price: Optional[float] = None, params: Optional[Dict] = None, account=None) -> Dict[str, Any]:
+    """创建OKX订单 (支持传入account使用其配置)"""
+    # 如果传入account，使用account的OKX配置
+    if account:
+        from .okx_market_data import create_market_order_okx, create_limit_order_okx
+        try:
+            logger.info(f"Creating {order_type} {side} order for account {account.name}: {amount} {symbol}")
+            
+            if order_type.lower() == "market":
+                order = create_market_order_okx(symbol, side, amount, params, account=account)
+            elif order_type.lower() == "limit":
+                if price is None:
+                    raise ValueError("Price is required for limit orders")
+                order = create_limit_order_okx(symbol, side, amount, price, params, account=account)
+            else:
+                raise ValueError(f"Unsupported order type: {order_type}")
+            
+            logger.info(f"Order created successfully: {order.get('id')}")
+            return {
+                'success': True,
+                'order_id': order.get('id'),
+                'symbol': order.get('symbol'),
+                'side': order.get('side'),
+                'amount': order.get('amount'),
+                'price': order.get('price'),
+                'type': order.get('type'),
+                'status': order.get('status'),
+                'timestamp': order.get('timestamp'),
+                'raw_order': order
+            }
+        except Exception as e:
+            logger.error(f"Failed to create order for account {account.name}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    else:
+        # 回退到全局执行器（使用.env配置）
+        return okx_trading_executor.create_order(symbol, side, amount, order_type, price, params)
 
 
-def cancel_okx_order(order_id: str, symbol: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+def cancel_okx_order(order_id: str, symbol: str, params: Optional[Dict] = None, account=None) -> Dict[str, Any]:
     """取消OKX订单"""
-    return okx_trading_executor.cancel_order(order_id, symbol, params)
+    if account:
+        from .okx_market_data import cancel_order_okx
+        try:
+            result = cancel_order_okx(order_id, symbol, params, account=account)
+            return {'success': True, 'result': result}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    else:
+        return okx_trading_executor.cancel_order(order_id, symbol, params)
 
 
-def get_okx_order_status(order_id: str, symbol: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+def get_okx_order_status(order_id: str, symbol: str, params: Optional[Dict] = None, account=None) -> Dict[str, Any]:
     """获取OKX订单状态"""
-    return okx_trading_executor.get_order_status(order_id, symbol, params)
+    if account:
+        from .okx_market_data import fetch_order_okx
+        try:
+            order = fetch_order_okx(order_id, symbol, params, account=account)
+            return {'success': True, 'order': order}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+    else:
+        return okx_trading_executor.get_order_status(order_id, symbol, params)
 
 
 def get_okx_balance(params: Optional[Dict] = None) -> Dict[str, Any]:

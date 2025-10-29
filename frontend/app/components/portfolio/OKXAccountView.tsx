@@ -20,7 +20,11 @@ import {
 } from '@/lib/api'
 import { RefreshCcw, TrendingUp, TrendingDown, DollarSign, Briefcase, ShoppingCart } from 'lucide-react'
 
-export default function OKXAccountView() {
+interface OKXAccountViewProps {
+  accountId: number
+}
+
+export default function OKXAccountView({ accountId }: OKXAccountViewProps) {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   
@@ -36,22 +40,24 @@ export default function OKXAccountView() {
     try {
       setRefreshing(true)
       
-      // Fetch all data in parallel
-      const [balanceRes, positionsRes, openOrdersRes, orderHistoryRes, tradesRes, summaryRes] = await Promise.all([
-        getOKXBalance(),
-        getOKXPositions(),
-        getOKXOpenOrders(),
-        getOKXOrderHistory(),
-        getOKXTrades(),
-        getOKXAccountSummary()
+      // Fetch critical data first (fast)
+      const summaryRes = await getOKXAccountSummary(accountId)
+      if (summaryRes.success) setSummary(summaryRes.summary)
+      
+      // Then fetch detailed data in parallel
+      const [balanceRes, positionsRes, openOrdersRes] = await Promise.all([
+        getOKXBalance(accountId),
+        getOKXPositions(accountId),
+        getOKXOpenOrders(accountId)
       ])
 
       if (balanceRes.success) setBalance(balanceRes.assets)
       if (positionsRes.success) setPositions(positionsRes.positions)
       if (openOrdersRes.success) setOpenOrders(openOrdersRes.orders)
-      if (orderHistoryRes.success) setOrderHistory(orderHistoryRes.orders)
-      if (tradesRes.success) setTrades(tradesRes.trades)
-      if (summaryRes.success) setSummary(summaryRes.summary)
+      
+      // Fetch history data lazily (only when user needs it)
+      // This reduces initial load time
+      // orderHistoryRes and tradesRes will be fetched when user clicks the tab
 
     } catch (error) {
       console.error('Failed to fetch OKX data:', error)
@@ -61,10 +67,32 @@ export default function OKXAccountView() {
       setRefreshing(false)
     }
   }
+  
+  // Lazy load order history
+  const fetchOrderHistory = async () => {
+    if (orderHistory.length > 0) return // Already loaded
+    try {
+      const res = await getOKXOrderHistory(accountId)
+      if (res.success) setOrderHistory(res.orders)
+    } catch (error) {
+      console.error('Failed to fetch order history:', error)
+    }
+  }
+  
+  // Lazy load trades
+  const fetchTrades = async () => {
+    if (trades.length > 0) return // Already loaded
+    try {
+      const res = await getOKXTrades(accountId)
+      if (res.success) setTrades(res.trades)
+    } catch (error) {
+      console.error('Failed to fetch trades:', error)
+    }
+  }
 
   useEffect(() => {
     fetchAllData()
-  }, [])
+  }, [accountId]) // Add accountId dependency
 
   const handleRefresh = () => {
     fetchAllData()
@@ -171,7 +199,11 @@ export default function OKXAccountView() {
       )}
 
       {/* Tabs for different data views */}
-      <Tabs defaultValue="balance" className="flex-1">
+      <Tabs defaultValue="balance" className="flex-1" onValueChange={(value) => {
+        // Lazy load data when user switches to history or trades tab
+        if (value === 'history') fetchOrderHistory()
+        if (value === 'trades') fetchTrades()
+      }}>
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="balance">Balance</TabsTrigger>
           <TabsTrigger value="positions">Positions ({positions.length})</TabsTrigger>

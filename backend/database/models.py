@@ -47,6 +47,12 @@ class Account(Base):
     base_url = Column(String(500), nullable=True, default="https://api.openai.com/v1")  # API endpoint
     api_key = Column(String(500), nullable=True)  # API key for authentication
     
+    # OKX Trading Configuration
+    okx_api_key = Column(String(500), nullable=True)  # OKX API Key
+    okx_secret = Column(String(500), nullable=True)  # OKX API Secret
+    okx_passphrase = Column(String(500), nullable=True)  # OKX API Passphrase
+    okx_sandbox = Column(String(10), nullable=False, default="true")  # Use sandbox environment
+    
     # Trading Account Balances (USD for CRYPTO market)
     initial_capital = Column(DECIMAL(18, 2), nullable=False, default=10000.00)
     current_cash = Column(DECIMAL(18, 2), nullable=False, default=10000.00)

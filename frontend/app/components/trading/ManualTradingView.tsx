@@ -32,7 +32,11 @@ const TRADING_PAIRS = [
   'LINK-USDT-SWAP'
 ]
 
-export default function ManualTradingView() {
+interface ManualTradingViewProps {
+  accountId: number
+}
+
+export default function ManualTradingView({ accountId }: ManualTradingViewProps) {
   // Trading form state
   const [symbol, setSymbol] = useState('BTC-USDT-SWAP')
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
@@ -52,9 +56,9 @@ export default function ManualTradingView() {
     try {
       setRefreshing(true)
       const [balanceRes, positionsRes, ordersRes] = await Promise.all([
-        getOKXBalance(),
-        getOKXPositions(),
-        getOKXOpenOrders()
+        getOKXBalance(accountId),
+        getOKXPositions(accountId),
+        getOKXOpenOrders(accountId)
       ])
 
       if (balanceRes.success) setBalance(balanceRes.assets)
@@ -71,7 +75,7 @@ export default function ManualTradingView() {
 
   useEffect(() => {
     fetchAllData()
-  }, [])
+  }, [accountId]) // Add accountId dependency
 
   const handleSubmitOrder = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -89,7 +93,7 @@ export default function ManualTradingView() {
     setIsSubmitting(true)
 
     try {
-      const result = await placeOKXOrder({
+      const result = await placeOKXOrder(accountId, {
         symbol,
         side,
         quantity: parseFloat(amount),  // 使用quantity字段名

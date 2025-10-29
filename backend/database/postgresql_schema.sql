@@ -23,9 +23,19 @@ CREATE TABLE accounts (
     name VARCHAR(100) NOT NULL,
     account_type VARCHAR(20) NOT NULL DEFAULT 'AI',
     is_active VARCHAR(10) NOT NULL DEFAULT 'true',
+    
+    -- AI Model Configuration
     model VARCHAR(100) DEFAULT 'gpt-4',
     base_url VARCHAR(500) DEFAULT 'https://api.openai.com/v1',
     api_key VARCHAR(500),
+    
+    -- OKX Trading Configuration
+    okx_api_key VARCHAR(500),
+    okx_secret VARCHAR(500),
+    okx_passphrase VARCHAR(500),
+    okx_sandbox VARCHAR(10) DEFAULT 'true',
+    
+    -- Account Balances
     initial_capital DECIMAL(18, 2) NOT NULL DEFAULT 10000.00,
     current_cash DECIMAL(18, 2) NOT NULL DEFAULT 10000.00,
     frozen_cash DECIMAL(18, 2) NOT NULL DEFAULT 0.00,

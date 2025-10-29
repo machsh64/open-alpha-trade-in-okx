@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone
 import time
 from dotenv import load_dotenv
+from functools import lru_cache
 from .mock_price_provider import get_mock_price, get_mock_kline_data, get_mock_symbols
 
 # 加载.env文件
@@ -16,8 +17,32 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+# Simple in-memory cache with TTL
+_cache = {}
+_cache_ttl = {}
+
+def _get_cached(key: str, ttl_seconds: int = 10):
+    """Get cached value if not expired"""
+    if key in _cache:
+        if time.time() - _cache_ttl.get(key, 0) < ttl_seconds:
+            return _cache[key]
+    return None
+
+def _set_cache(key: str, value):
+    """Set cached value with timestamp"""
+    _cache[key] = value
+    _cache_ttl[key] = time.time()
+
 class OKXClient:
-    def __init__(self):
+    def __init__(self, account=None):
+        """
+        Initialize OKX client
+        
+        Args:
+            account: Account model instance with OKX credentials (optional)
+                    If not provided, will use .env configuration (deprecated)
+        """
+        self.account = account
         self.public_exchange = None  # 公开API（获取行情）
         self.private_exchange = None  # 私有API（交易）
         self._initialize_exchange()
@@ -25,13 +50,20 @@ class OKXClient:
     def _initialize_exchange(self):
         """Initialize CCXT OKX exchange"""
         try:
-            # 从环境变量获取API配置
-            api_key = os.getenv('OKX_API_KEY')
-            secret = os.getenv('OKX_SECRET')
-            passphrase = os.getenv('OKX_PASSPHRASE')
-            sandbox = os.getenv('OKX_SANDBOX', 'true').lower() == 'true'
-            
-            logger.info(f"Initializing OKX with sandbox={sandbox}")
+            # 优先使用account配置，否则回退到.env（向后兼容）
+            if self.account and self.account.okx_api_key:
+                api_key = self.account.okx_api_key
+                secret = self.account.okx_secret
+                passphrase = self.account.okx_passphrase
+                sandbox = self.account.okx_sandbox.lower() == 'true'
+                logger.info(f"Initializing OKX for account {self.account.name} (sandbox={sandbox})")
+            else:
+                # 回退到环境变量配置（兼容旧代码）
+                api_key = os.getenv('OKX_API_KEY')
+                secret = os.getenv('OKX_SECRET')
+                passphrase = os.getenv('OKX_PASSPHRASE')
+                sandbox = os.getenv('OKX_SANDBOX', 'true').lower() == 'true'
+                logger.info(f"Initializing OKX with .env configuration (sandbox={sandbox})")
             
             # 公开API - 无需认证，用于获取行情
             self.public_exchange = ccxt.okx({
@@ -435,6 +467,62 @@ class OKXClient:
             logger.error(f"Error fetching ticker for {symbol}: {e}")
             raise
 
+    def get_market_precision(self, symbol: str) -> dict:
+        """
+        Get market precision info for a symbol from OKX
+        
+        Args:
+            symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+            
+        Returns:
+            dict with 'amount' (amount precision), 'price' (price precision), 
+            'min_amount' (minimum order amount), 'min_cost' (minimum order cost)
+        """
+        try:
+            if not self.public_exchange:
+                self._initialize_exchange()
+            
+            # Load markets if not already loaded
+            if not self.public_exchange.markets:
+                self.public_exchange.load_markets()
+            
+            formatted_symbol = self._format_symbol(symbol)
+            
+            if formatted_symbol not in self.public_exchange.markets:
+                logger.error(f"Symbol {formatted_symbol} not found in markets")
+                # 返回默认值
+                return {
+                    'amount': 1,  # 默认整数
+                    'price': 2,
+                    'min_amount': 1,
+                    'min_cost': 5
+                }
+            
+            market = self.public_exchange.markets[formatted_symbol]
+            
+            # CCXT市场结构：
+            # market['precision'] = {'amount': 1, 'price': 2}
+            # market['limits'] = {'amount': {'min': 1}, 'cost': {'min': 5}}
+            precision_info = {
+                'amount': market.get('precision', {}).get('amount', 1),
+                'price': market.get('precision', {}).get('price', 2),
+                'min_amount': market.get('limits', {}).get('amount', {}).get('min', 1),
+                'min_cost': market.get('limits', {}).get('cost', {}).get('min', 5)
+            }
+            
+            logger.info(f"Market precision for {symbol}: {precision_info}")
+            return precision_info
+            
+        except Exception as e:
+            logger.error(f"Error fetching market precision for {symbol}: {e}")
+            # 返回保守的默认值
+            return {
+                'amount': 1,
+                'price': 2,
+                'min_amount': 1,
+                'min_cost': 5
+            }
+
     def fetch_positions(self, symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:
         """
         Fetch current positions from OKX
@@ -558,79 +646,128 @@ class OKXClient:
             return []
 
 
-# Global client instance
+# Global client instance (for backward compatibility with .env config)
 okx_client = OKXClient()
 
 
-def get_last_price_from_okx(symbol: str) -> Optional[float]:
+def _get_client(account=None):
+    """
+    Get OKX client instance
+    
+    Args:
+        account: Account model instance with OKX credentials (optional)
+                If provided, creates a new client with account config
+                If not provided, uses global client with .env config
+    
+    Returns:
+        OKXClient instance
+    """
+    if account and account.okx_api_key:
+        # Create account-specific client
+        return OKXClient(account=account)
+    else:
+        # Use global client (backward compatible)
+        return okx_client
+
+
+def get_last_price_from_okx(symbol: str, account=None) -> Optional[float]:
     """Get last price from OKX"""
-    return okx_client.get_last_price(symbol)
+    return _get_client(account).get_last_price(symbol)
 
 
-def get_kline_data_from_okx(symbol: str, period: str = '1d', count: int = 100) -> List[Dict[str, Any]]:
+def get_kline_data_from_okx(symbol: str, period: str = '1d', count: int = 100, account=None) -> List[Dict[str, Any]]:
     """Get kline data from OKX"""
-    return okx_client.get_kline_data(symbol, period, count)
+    return _get_client(account).get_kline_data(symbol, period, count)
 
 
-def get_market_status_from_okx(symbol: str) -> Dict[str, Any]:
+def get_market_status_from_okx(symbol: str, account=None) -> Dict[str, Any]:
     """Get market status from OKX"""
-    return okx_client.get_market_status(symbol)
+    return _get_client(account).get_market_status(symbol)
 
 
-def get_all_symbols_from_okx() -> List[str]:
+def get_all_symbols_from_okx(account=None) -> List[str]:
     """Get all available symbols from OKX"""
-    return okx_client.get_all_symbols()
+    return _get_client(account).get_all_symbols()
 
 
 # Trading functions
-def create_market_order_okx(symbol: str, side: str, amount: float, params: dict = None) -> dict:
+def create_market_order_okx(symbol: str, side: str, amount: float, params: dict = None, account=None) -> dict:
     """Create market order on OKX"""
-    return okx_client.create_market_order(symbol, side, amount, params)
+    return _get_client(account).create_market_order(symbol, side, amount, params)
 
 
-def create_limit_order_okx(symbol: str, side: str, amount: float, price: float, params: dict = None) -> dict:
+def create_limit_order_okx(symbol: str, side: str, amount: float, price: float, params: dict = None, account=None) -> dict:
     """Create limit order on OKX"""
-    return okx_client.create_limit_order(symbol, side, amount, price, params)
+    return _get_client(account).create_limit_order(symbol, side, amount, price, params)
 
 
-def cancel_order_okx(order_id: str, symbol: str, params: dict = None) -> dict:
+def cancel_order_okx(order_id: str, symbol: str, params: dict = None, account=None) -> dict:
     """Cancel order on OKX"""
-    return okx_client.cancel_order(order_id, symbol, params)
+    return _get_client(account).cancel_order(order_id, symbol, params)
 
 
-def fetch_order_okx(order_id: str, symbol: str, params: dict = None) -> dict:
+def fetch_order_okx(order_id: str, symbol: str, params: dict = None, account=None) -> dict:
     """Fetch order details from OKX"""
-    return okx_client.fetch_order(order_id, symbol, params)
+    return _get_client(account).fetch_order(order_id, symbol, params)
 
 
-def fetch_balance_okx(params: dict = None) -> dict:
-    """Fetch balance from OKX"""
-    return okx_client.fetch_balance(params)
+def fetch_balance_okx(params: dict = None, account=None) -> dict:
+    """Fetch balance from OKX with caching"""
+    cache_key = f"balance_{account.id if account else 'global'}"
+    cached = _get_cached(cache_key, ttl_seconds=5)  # 5 seconds cache
+    if cached:
+        logger.debug(f"Using cached balance for {cache_key}")
+        return cached
+    
+    result = _get_client(account).fetch_balance(params)
+    _set_cache(cache_key, result)
+    return result
 
 
-def fetch_ticker_okx(symbol: str) -> dict:
+def fetch_ticker_okx(symbol: str, account=None) -> dict:
     """Fetch ticker (current price) from OKX"""
-    return okx_client.fetch_ticker(symbol)
+    return _get_client(account).fetch_ticker(symbol)
 
 
-def fetch_positions_okx(symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:
-    """Fetch positions from OKX"""
-    return okx_client.fetch_positions(symbol, params)
+def get_market_precision_okx(symbol: str, account=None) -> dict:
+    """Get market precision info from OKX"""
+    return _get_client(account).get_market_precision(symbol)
 
 
-def fetch_open_orders_okx(symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:
-    """Fetch open orders from OKX"""
-    return okx_client.fetch_open_orders(symbol, params)
+def fetch_positions_okx(symbol: str = None, params: dict = None, account=None) -> List[Dict[str, Any]]:
+    """Fetch positions from OKX with caching"""
+    cache_key = f"positions_{account.id if account else 'global'}_{symbol or 'all'}"
+    cached = _get_cached(cache_key, ttl_seconds=5)  # 5 seconds cache
+    if cached:
+        logger.debug(f"Using cached positions for {cache_key}")
+        return cached
+    
+    result = _get_client(account).fetch_positions(symbol, params)
+    _set_cache(cache_key, result)
+    return result
 
 
-def fetch_closed_orders_okx(symbol: str = None, since: int = None, limit: int = 100, params: dict = None) -> List[Dict[str, Any]]:
+def fetch_open_orders_okx(symbol: str = None, params: dict = None, account=None) -> List[Dict[str, Any]]:
+    """Fetch open orders from OKX with caching"""
+    cache_key = f"open_orders_{account.id if account else 'global'}_{symbol or 'all'}"
+    cached = _get_cached(cache_key, ttl_seconds=3)  # 3 seconds cache (orders change frequently)
+    if cached:
+        logger.debug(f"Using cached open orders for {cache_key}")
+        return cached
+    
+    result = _get_client(account).fetch_open_orders(symbol, params)
+    _set_cache(cache_key, result)
+    return result
+
+
+def fetch_closed_orders_okx(symbol: str = None, since: int = None, limit: int = 100, params: dict = None, account=None) -> List[Dict[str, Any]]:
     """Fetch closed orders from OKX"""
-    return okx_client.fetch_closed_orders(symbol, since, limit, params)
+    return _get_client(account).fetch_closed_orders(symbol, since, limit, params)
 
 
-def fetch_my_trades_okx(symbol: str = None, since: int = None, limit: int = 100, params: dict = None) -> List[Dict[str, Any]]:
+def fetch_my_trades_okx(symbol: str = None, since: int = None, limit: int = 100, params: dict = None, account=None) -> List[Dict[str, Any]]:
     """Fetch trade history from OKX"""
-    return okx_client.fetch_my_trades(symbol, since, limit, params)
+    return _get_client(account).fetch_my_trades(symbol, since, limit, params)
 
 
 def get_market_analysis(symbol: str, period: str = "1h", count: int = 168) -> Dict[str, Any]:
@@ -812,7 +949,7 @@ def get_market_analysis(symbol: str, period: str = "1h", count: int = 168) -> Di
         }
 
 
-def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', params: dict = None) -> dict:
+def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', params: dict = None, account=None) -> dict:
     """
     设置交易对的杠杆倍数
     
@@ -821,12 +958,14 @@ def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', par
         leverage: 杠杆倍数 (1-125)
         margin_mode: 保证金模式 'cross'(全仓) 或 'isolated'(逐仓), 默认全仓
         params: 额外参数
+        account: 账户对象（多账户支持）
         
     Returns:
         设置结果字典
     """
     try:
-        if not okx_client.private_exchange:
+        client = _get_client(account)
+        if not client:
             raise Exception("OKX private API not initialized")
         
         if params is None:
@@ -840,7 +979,7 @@ def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', par
         logger.info(f"Setting leverage for {symbol} ({inst_id}): {leverage}x, margin_mode={margin_mode}")
         
         # 使用CCXT的setLeverage方法
-        result = okx_client.private_exchange.set_leverage(
+        result = client.set_leverage(
             leverage=leverage,
             symbol=symbol,
             params={

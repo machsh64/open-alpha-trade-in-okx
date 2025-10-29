@@ -12,7 +12,11 @@ def create_account(
     initial_capital: float = 10000.0,
     model: str = "gpt-4-turbo",
     base_url: str = "https://api.openai.com/v1",
-    api_key: str = None
+    api_key: str = None,
+    okx_api_key: str = None,
+    okx_secret: str = None,
+    okx_passphrase: str = None,
+    okx_sandbox: str = "true"
 ) -> Account:
     """Create a new trading account"""
     account = Account(
@@ -23,6 +27,10 @@ def create_account(
         model=model if account_type == "AI" else None,
         base_url=base_url if account_type == "AI" else None,
         api_key=api_key if account_type == "AI" else None,
+        okx_api_key=okx_api_key,
+        okx_secret=okx_secret,
+        okx_passphrase=okx_passphrase,
+        okx_sandbox=okx_sandbox or "true",
         initial_capital=initial_capital,
         current_cash=initial_capital,
         frozen_cash=0.0,
@@ -81,7 +89,11 @@ def update_account(
     name: str = None,
     model: str = None,
     base_url: str = None,
-    api_key: str = None
+    api_key: str = None,
+    okx_api_key: str = None,
+    okx_secret: str = None,
+    okx_passphrase: str = None,
+    okx_sandbox: str = None
 ) -> Optional[Account]:
     """Update account information"""
     account = db.query(Account).filter(Account.id == account_id).first()
@@ -96,6 +108,14 @@ def update_account(
         account.base_url = base_url
     if api_key is not None:
         account.api_key = api_key
+    if okx_api_key is not None:
+        account.okx_api_key = okx_api_key
+    if okx_secret is not None:
+        account.okx_secret = okx_secret
+    if okx_passphrase is not None:
+        account.okx_passphrase = okx_passphrase
+    if okx_sandbox is not None:
+        account.okx_sandbox = okx_sandbox
     
     db.commit()
     db.refresh(account)

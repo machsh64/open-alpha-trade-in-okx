@@ -181,8 +181,14 @@ async def create_new_account(payload: dict, db: Session = Depends(get_db)):
             model=payload.get("model", "gpt-4-turbo"),
             base_url=payload.get("base_url", "https://api.openai.com/v1"),
             api_key=payload.get("api_key", ""),
-            initial_capital=float(payload.get("initial_capital", 10000.0)),
-            current_cash=float(payload.get("initial_capital", 10000.0)),
+            okx_api_key=payload.get("okx_api_key"),
+            okx_secret=payload.get("okx_secret"),
+            okx_passphrase=payload.get("okx_passphrase"),
+            okx_sandbox=payload.get("okx_sandbox", "true"),
+            # For OKX accounts, these fields will be fetched from OKX API in real-time
+            # For non-OKX accounts, use provided values or defaults
+            initial_capital=float(payload.get("initial_capital", 0.0)),
+            current_cash=float(payload.get("initial_capital", 0.0)),
             frozen_cash=0.0,
             is_active="true"
         )
@@ -253,6 +259,23 @@ async def update_account_settings(account_id: int, payload: dict, db: Session = 
         if "api_key" in payload:
             account.api_key = payload["api_key"]
             logger.info(f"Updated api_key (length: {len(payload['api_key']) if payload['api_key'] else 0})")
+        
+        # Update OKX configuration fields
+        if "okx_api_key" in payload:
+            account.okx_api_key = payload["okx_api_key"]
+            logger.info(f"Updated okx_api_key (length: {len(payload['okx_api_key']) if payload['okx_api_key'] else 0})")
+        
+        if "okx_secret" in payload:
+            account.okx_secret = payload["okx_secret"]
+            logger.info(f"Updated okx_secret (length: {len(payload['okx_secret']) if payload['okx_secret'] else 0})")
+        
+        if "okx_passphrase" in payload:
+            account.okx_passphrase = payload["okx_passphrase"]
+            logger.info(f"Updated okx_passphrase (length: {len(payload['okx_passphrase']) if payload['okx_passphrase'] else 0})")
+        
+        if "okx_sandbox" in payload:
+            account.okx_sandbox = payload["okx_sandbox"]
+            logger.info(f"Updated okx_sandbox to: {account.okx_sandbox}")
         
         db.commit()
         db.refresh(account)
@@ -545,3 +568,65 @@ async def test_llm_connection(payload: dict):
     except Exception as e:
         logger.error(f"Failed to test LLM connection: {e}", exc_info=True)
         return {"success": False, "message": f"Failed to test LLM connection: {str(e)}"}
+
+
+@router.get("/{account_id}/okx-balance")
+async def get_okx_balance(account_id: int, db: Session = Depends(get_db)):
+    """Get real-time balance from OKX for an account"""
+    try:
+        from database.models import Account, User
+        from services.okx_market_data import fetch_balance_okx
+        
+        # Get account
+        account = db.query(Account).filter(
+            Account.id == account_id,
+            Account.is_active == "true"
+        ).first()
+        
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found")
+        
+        # Check if OKX is configured
+        if not account.okx_api_key or not account.okx_secret or not account.okx_passphrase:
+            return {
+                "success": False,
+                "message": "OKX not configured for this account",
+                "balance": 0.0
+            }
+        
+        # Fetch balance from OKX
+        try:
+            balance_data = fetch_balance_okx(account=account)
+            
+            # Extract USDT balance (or total equity)
+            total_balance = 0.0
+            if balance_data and 'info' in balance_data:
+                # OKX returns balance in a specific format
+                # Extract total equity or available balance
+                data = balance_data.get('data', [])
+                if data and len(data) > 0:
+                    details = data[0].get('details', [])
+                    for detail in details:
+                        if detail.get('ccy') == 'USDT':
+                            total_balance = float(detail.get('cashBal', 0) or 0)
+                            break
+            
+            return {
+                "success": True,
+                "balance": total_balance,
+                "raw_data": balance_data  # Include raw data for debugging
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to fetch OKX balance: {e}", exc_info=True)
+            return {
+                "success": False,
+                "message": f"Failed to fetch OKX balance: {str(e)}",
+                "balance": 0.0
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get OKX balance: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get OKX balance: {str(e)}")

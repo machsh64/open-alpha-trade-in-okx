@@ -41,16 +41,20 @@ def _is_default_api_key(api_key: str) -> bool:
     return api_key in DEMO_API_KEYS
 
 
-def _get_portfolio_data_from_okx() -> Dict:
+def _get_portfolio_data_from_okx(account: Account = None) -> Dict:
     """
     从OKX获取真实账户数据（用于AI决策）
     Get real OKX account data for AI trading decisions
+    
+    Args:
+        account: Account model instance with OKX credentials (optional)
+                If not provided and no .env config, will raise error
     """
     try:
         from services.okx_market_data import fetch_balance_okx, fetch_positions_okx
         
-        # 获取OKX余额
-        balance = fetch_balance_okx()
+        # 获取OKX余额（传入account使用其配置）
+        balance = fetch_balance_okx(account=account)
         
         # CCXT返回的格式:
         # balance['info']['data'][0]['totalEq'] = 总权益
@@ -75,8 +79,8 @@ def _get_portfolio_data_from_okx() -> Dict:
                         usdt_used = float(detail.get('frozenBal', 0))
                         break
         
-        # 获取OKX持仓
-        positions = fetch_positions_okx()
+        # 获取OKX持仓（传入account使用其配置）
+        positions = fetch_positions_okx(account=account)
         portfolio = {}
         total_position_value = 0.0
         
@@ -121,10 +125,24 @@ def _get_portfolio_data_from_okx() -> Dict:
         }
         
     except Exception as e:
-        logger.error(f"Failed to get OKX portfolio data: {e}")
+        error_msg = str(e)
+        logger.error(f"Failed to get OKX portfolio data: {error_msg}")
+        
+        # 如果是OKX凭证未配置的错误，给出更友好的提示
+        if "Private API not initialized" in error_msg or "check OKX credentials" in error_msg:
+            logger.warning("⚠️ OKX credentials not configured for this account. Please configure OKX API credentials in Account Management.")
+            # 返回空数据，让系统可以继续运行（但不会进行交易）
+            return {
+                "cash": 0.0,
+                "frozen_cash": 0.0,
+                "positions": {},
+                "total_assets": 0.0,
+                "error": "OKX_NOT_CONFIGURED"
+            }
+        
         import traceback
         traceback.print_exc()
-        # 如果获取OKX数据失败，返回默认数据
+        # 其他错误也返回默认数据
         return {
             "cash": 0.0,
             "frozen_cash": 0.0,
@@ -138,9 +156,9 @@ def _get_portfolio_data(db: Session, account: Account) -> Dict:
     Get current portfolio positions and values
     已废弃：现在AI交易使用OKX真实数据，请使用 _get_portfolio_data_from_okx()
     """
-    # 对于AI账户，直接从OKX获取数据
+    # 对于AI账户，直接从OKX获取数据（传入account使用其配置）
     if account.account_type == "AI":
-        return _get_portfolio_data_from_okx()
+        return _get_portfolio_data_from_okx(account=account)
     
     # 对于其他账户类型，使用本地数据库数据（向后兼容）
     positions = db.query(Position).filter(
@@ -362,7 +380,7 @@ ADDITIONAL RULES:
                     "content": prompt
                 }
             ],
-            "temperature": 0.7,
+            "temperature": 0.5,
             "max_tokens": 1000
         }
         

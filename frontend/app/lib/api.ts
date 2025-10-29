@@ -149,9 +149,13 @@ export interface TradingAccount {
   model?: string  // AI model (e.g., "gpt-4-turbo")
   base_url?: string  // API endpoint
   api_key?: string  // API key (masked in responses)
-  initial_capital: number
-  current_cash: number
-  frozen_cash: number
+  okx_api_key?: string  // OKX API Key (masked in responses)
+  okx_secret?: string  // OKX API Secret (masked in responses)
+  okx_passphrase?: string  // OKX API Passphrase (masked in responses)
+  okx_sandbox?: string  // OKX Sandbox environment flag
+  initial_capital?: number  // Optional: only for non-OKX accounts
+  current_cash?: number  // Optional: real-time data from OKX
+  frozen_cash?: number  // Optional: real-time data from OKX
   account_type: string  // "AI" or "MANUAL"
   is_active: boolean
 }
@@ -161,6 +165,10 @@ export interface TradingAccountCreate {
   model?: string
   base_url?: string
   api_key?: string
+  okx_api_key?: string
+  okx_secret?: string
+  okx_passphrase?: string
+  okx_sandbox?: string
   initial_capital?: number
   account_type?: string
 }
@@ -170,6 +178,10 @@ export interface TradingAccountUpdate {
   model?: string
   base_url?: string
   api_key?: string
+  okx_api_key?: string
+  okx_secret?: string
+  okx_passphrase?: string
+  okx_sandbox?: string
 }
 
 
@@ -234,6 +246,10 @@ export async function createAccount(account: TradingAccountCreate): Promise<Trad
       model: account.model,
       base_url: account.base_url,
       api_key: account.api_key,
+      okx_api_key: account.okx_api_key,
+      okx_secret: account.okx_secret,
+      okx_passphrase: account.okx_passphrase,
+      okx_sandbox: account.okx_sandbox,
       account_type: account.account_type || 'AI',
       initial_capital: account.initial_capital || 10000
     })
@@ -248,7 +264,11 @@ export async function updateAccount(accountId: number, account: TradingAccountUp
       name: account.name,
       model: account.model,
       base_url: account.base_url,
-      api_key: account.api_key
+      api_key: account.api_key,
+      okx_api_key: account.okx_api_key,
+      okx_secret: account.okx_secret,
+      okx_passphrase: account.okx_passphrase,
+      okx_sandbox: account.okx_sandbox
     })
   })
   return response.json()
@@ -349,30 +369,32 @@ export interface OKXAccountSummary {
   used_usdt: number
 }
 
-export async function getOKXStatus() {
-  const response = await apiRequest('/okx-account/status')
+export async function getOKXStatus(accountId: number) {
+  const response = await apiRequest(`/okx-account/status?account_id=${accountId}`)
   return response.json()
 }
 
-export async function getOKXBalance(): Promise<{ success: boolean; assets: OKXBalance[] }> {
-  const response = await apiRequest('/okx-account/balance')
+export async function getOKXBalance(accountId: number): Promise<{ success: boolean; assets: OKXBalance[] }> {
+  const response = await apiRequest(`/okx-account/balance?account_id=${accountId}`)
   return response.json()
 }
 
-export async function getOKXPositions(symbol?: string): Promise<{ success: boolean; positions: OKXPosition[]; count: number }> {
-  const endpoint = symbol ? `/okx-account/positions?symbol=${symbol}` : '/okx-account/positions'
-  const response = await apiRequest(endpoint)
+export async function getOKXPositions(accountId: number, symbol?: string): Promise<{ success: boolean; positions: OKXPosition[]; count: number }> {
+  const params = new URLSearchParams({ account_id: accountId.toString() })
+  if (symbol) params.append('symbol', symbol)
+  const response = await apiRequest(`/okx-account/positions?${params.toString()}`)
   return response.json()
 }
 
-export async function getOKXOpenOrders(symbol?: string): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
-  const endpoint = symbol ? `/okx-account/orders/open?symbol=${symbol}` : '/okx-account/orders/open'
-  const response = await apiRequest(endpoint)
+export async function getOKXOpenOrders(accountId: number, symbol?: string): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
+  const params = new URLSearchParams({ account_id: accountId.toString() })
+  if (symbol) params.append('symbol', symbol)
+  const response = await apiRequest(`/okx-account/orders/open?${params.toString()}`)
   return response.json()
 }
 
-export async function getOKXOrderHistory(symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
-  const params = new URLSearchParams()
+export async function getOKXOrderHistory(accountId: number, symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; orders: OKXOrder[]; count: number }> {
+  const params = new URLSearchParams({ account_id: accountId.toString() })
   if (symbol) params.append('symbol', symbol)
   params.append('limit', limit.toString())
   params.append('days', days.toString())
@@ -381,8 +403,8 @@ export async function getOKXOrderHistory(symbol?: string, limit: number = 100, d
   return response.json()
 }
 
-export async function getOKXTrades(symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; trades: OKXTrade[]; count: number }> {
-  const params = new URLSearchParams()
+export async function getOKXTrades(accountId: number, symbol?: string, limit: number = 100, days: number = 7): Promise<{ success: boolean; trades: OKXTrade[]; count: number }> {
+  const params = new URLSearchParams({ account_id: accountId.toString() })
   if (symbol) params.append('symbol', symbol)
   params.append('limit', limit.toString())
   params.append('days', days.toString())
@@ -391,8 +413,8 @@ export async function getOKXTrades(symbol?: string, limit: number = 100, days: n
   return response.json()
 }
 
-export async function getOKXAccountSummary(): Promise<{ success: boolean; summary: OKXAccountSummary }> {
-  const response = await apiRequest('/okx-account/summary')
+export async function getOKXAccountSummary(accountId: number): Promise<{ success: boolean; summary: OKXAccountSummary }> {
+  const response = await apiRequest(`/okx-account/summary?account_id=${accountId}`)
   return response.json()
 }
 
@@ -404,7 +426,7 @@ export interface PlaceOKXOrderRequest {
   price?: number
 }
 
-export async function placeOKXOrder(orderRequest: PlaceOKXOrderRequest): Promise<{ success: boolean; order_id?: string; error?: string }> {
+export async function placeOKXOrder(accountId: number, orderRequest: PlaceOKXOrderRequest): Promise<{ success: boolean; order_id?: string; error?: string }> {
   // 转换前端的驼峰命名为后端的snake_case
   const backendRequest = {
     symbol: orderRequest.symbol,
@@ -414,7 +436,7 @@ export async function placeOKXOrder(orderRequest: PlaceOKXOrderRequest): Promise
     price: orderRequest.price
   }
   
-  const response = await apiRequest('/okx-account/order', {
+  const response = await apiRequest(`/okx-account/order?account_id=${accountId}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

@@ -297,11 +297,11 @@ function App() {
               loadingAccounts={accountsLoading}
             />
           )}
-          {currentPage === 'manual' && (
-            <ManualTradingView />
+          {currentPage === 'manual' && account && (
+            <ManualTradingView accountId={account.id} />
           )}
-          {currentPage === 'okx' && (
-            <OKXAccountView />
+          {currentPage === 'okx' && account && (
+            <OKXAccountView accountId={account.id} />
           )}
         </main>
       </div>
@@ -310,8 +310,8 @@ function App() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
+  <>
     <Toaster position="top-right" />
     <App />
-  </React.StrictMode>,
+  </>,
 )

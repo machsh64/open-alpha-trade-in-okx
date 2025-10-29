@@ -267,12 +267,12 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 okx_symbol = f"{symbol}-USDT-SWAP"  # OKX永续合约格式
                 ccxt_symbol = f"{symbol}/USDT:USDT"  # CCXT格式
                 
-                # 从OKX获取余额信息和当前持仓
+                # 从OKX获取余额信息和当前持仓（传入account使用其配置）
                 from services.okx_market_data import fetch_balance_okx, fetch_positions_okx
                 
                 # fetch_balance_okx 返回 CCXT 原始格式，不是 {success: true, balances: ...}
                 try:
-                    balance_result = fetch_balance_okx()
+                    balance_result = fetch_balance_okx(account=account)
                     logger.info(f"[DEBUG] Fetched balance from OKX")
                     
                     # CCXT格式：{'USDT': {'free': 100, 'used': 10, 'total': 110}, ...}
@@ -288,22 +288,45 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     continue
                 
                 # 获取当前持仓（fetch_positions_okx返回的是列表，不是字典）
+                # 注意：OKX 双向持仓模式下，同一个 symbol 可能有 long 和 short 两个持仓
                 try:
-                    positions_list = fetch_positions_okx()
+                    positions_list = fetch_positions_okx(account=account)
                     logger.info(f"[DEBUG] Fetched {len(positions_list)} positions from OKX")
                     
+                    # 对于双向持仓，需要根据操作类型匹配对应方向的持仓
                     current_position = None
+                    target_pos_side = None
+                    
+                    # 预判断：根据操作类型确定需要的持仓方向
+                    if operation in ["close_long"]:
+                        target_pos_side = "long"
+                    elif operation in ["close_short"]:
+                        target_pos_side = "short"
+                    
                     for pos in positions_list:
                         pos_symbol = pos.get('symbol')
                         pos_contracts = pos.get('contracts', 0)
+                        pos_side_field = pos.get('side') or pos.get('posSide')
+                        
                         logger.info(f"[DEBUG] Position: {pos_symbol}, contracts={pos_contracts}, side={pos.get('side')}, posSide={pos.get('posSide')}")
                         
+                        # 匹配 symbol 和持仓方向（如果是 close 操作）
                         if pos_symbol == ccxt_symbol:
-                            current_position = pos
-                            logger.info(f"[DEBUG] Found matching position for {ccxt_symbol}")
-                            break
+                            if target_pos_side:
+                                # close 操作：需要匹配持仓方向
+                                if pos_side_field == target_pos_side and abs(float(pos_contracts)) > 0:
+                                    current_position = pos
+                                    logger.info(f"[DEBUG] Found matching {target_pos_side} position for {ccxt_symbol}")
+                                    break
+                            else:
+                                # open 操作：不需要匹配方向，找到任意持仓即可
+                                current_position = pos
+                                logger.info(f"[DEBUG] Found matching position for {ccxt_symbol}")
+                                break
                     
-                    if not current_position:
+                    if not current_position and target_pos_side:
+                        logger.info(f"[DEBUG] No matching {target_pos_side} position found for {ccxt_symbol}")
+                    elif not current_position:
                         logger.info(f"[DEBUG] No matching position found for {ccxt_symbol}")
                 except Exception as e:
                     logger.error(f"Failed to fetch positions from OKX: {e}")
@@ -317,17 +340,24 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 quantity = None
                 
                 # 获取当前价格（用于计算开仓数量）
-                from services.okx_market_data import fetch_ticker_okx
+                from services.okx_market_data import fetch_ticker_okx, get_market_precision_okx
                 try:
-                    ticker = fetch_ticker_okx(ccxt_symbol)
+                    ticker = fetch_ticker_okx(ccxt_symbol, account=account)
                     current_price = float(ticker.get('last', 0))
                     if current_price <= 0:
                         logger.error(f"Invalid price for {symbol}, skipping")
                         save_ai_decision(db, account, decision, portfolio, executed=False)
                         continue
                     logger.info(f"[DEBUG] Current price for {symbol}: ${current_price:.2f}")
+                    
+                    # 获取市场精度信息
+                    precision_info = get_market_precision_okx(ccxt_symbol, account=account)
+                    amount_precision = precision_info.get('amount', 1)
+                    min_amount = precision_info.get('min_amount', 1)
+                    logger.info(f"[DEBUG] Market precision for {symbol}: amount_precision={amount_precision}, min_amount={min_amount}")
+                    
                 except Exception as e:
-                    logger.error(f"Failed to fetch price for {symbol}: {e}")
+                    logger.error(f"Failed to fetch price/precision for {symbol}: {e}")
                     save_ai_decision(db, account, decision, portfolio, executed=False)
                     continue
                 
@@ -345,13 +375,20 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     order_value_usdt = available_balance * target_portion * leverage
                     quantity = order_value_usdt / current_price
                     
-                    # OKX永续合约最小精度
-                    if symbol in ['BTC', 'ETH']:
-                        quantity = round(quantity, 3)  # BTC/ETH: 0.001
+                    # 使用OKX返回的精度信息进行舍入
+                    if amount_precision >= 1:
+                        # 精度>=1表示整数或0.1, 0.01等
+                        quantity = round(quantity, amount_precision)
                     else:
-                        quantity = round(quantity, 1)  # 其他币: 0.1
+                        # 精度<1表示整数（如DOGE）
+                        quantity = int(quantity)
                     
-                    logger.info(f"[DEBUG] Calculated sell_short quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
+                    # 确保不低于最小数量
+                    if quantity < min_amount:
+                        logger.warning(f"Calculated quantity {quantity} below min {min_amount}, adjusting")
+                        quantity = min_amount
+                    
+                    logger.info(f"[DEBUG] Calculated buy_long quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
                     
                     if quantity <= 0:
                         logger.info(f"Calculated quantity too small for {symbol}, skipping")
@@ -372,13 +409,20 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     order_value_usdt = available_balance * target_portion * leverage
                     quantity = order_value_usdt / current_price
                     
-                    # OKX永续合约最小精度
-                    if symbol in ['BTC', 'ETH']:
-                        quantity = round(quantity, 3)  # BTC/ETH: 0.001
+                    # 使用OKX返回的精度信息进行舍入
+                    if amount_precision >= 1:
+                        # 精度>=1表示整数或0.1, 0.01等
+                        quantity = round(quantity, amount_precision)
                     else:
-                        quantity = round(quantity, 1)  # 其他币: 0.1
+                        # 精度<1表示整数（如DOGE）
+                        quantity = int(quantity)
                     
-                    logger.info(f"[DEBUG] Calculated buy_long quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
+                    # 确保不低于最小数量
+                    if quantity < min_amount:
+                        logger.warning(f"Calculated quantity {quantity} below min {min_amount}, adjusting")
+                        quantity = min_amount
+                    
+                    logger.info(f"[DEBUG] Calculated sell_short quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
                     
                     if quantity <= 0:
                         logger.info(f"Calculated quantity too small for {symbol}, skipping")
@@ -428,11 +472,15 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     side = "buy"
                     pos_side = "short"
                     
-                    logger.info(f"[DEBUG] close_short operation for {symbol}:")
-                    logger.info(f"[DEBUG]   current_position: {current_position is not None}")
+                    logger.info(f"[DEBUG] ===== CLOSE_SHORT OPERATION START =====")
+                    logger.info(f"[DEBUG] Account: {account.name} (ID: {account.id})")
+                    logger.info(f"[DEBUG] Symbol: {symbol}, OKX Symbol: {okx_symbol}")
+                    logger.info(f"[DEBUG] Target Portion: {target_portion}")
+                    logger.info(f"[DEBUG] Current Position (should be SHORT): {current_position}")
                     
                     if not current_position:
-                        logger.info(f"[FAIL] close_short: No position found for {symbol}, skipping")
+                        logger.error(f"[FAIL] close_short: No SHORT position found for {symbol}. Account: {account.name}")
+                        logger.error(f"[FAIL] Note: In dual-position mode, you may have a LONG position but no SHORT position for this symbol.")
                         save_ai_decision(db, account, decision, portfolio, executed=False)
                         continue
                     
@@ -446,7 +494,8 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     logger.info(f"[DEBUG]   detected position_side: {position_side}")
                     
                     if position_side != 'short':
-                        logger.info(f"[FAIL] close_short: Position is not short (position_side={position_side}), skipping")
+                        logger.error(f"[FAIL] close_short: Position is not short (position_side={position_side}). Account: {account.name}, Symbol: {symbol}")
+                        logger.error(f"[FAIL] This should not happen after position matching. Check dual-position mode logic.")
                         save_ai_decision(db, account, decision, portfolio, executed=False)
                         continue
                     
@@ -454,48 +503,80 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     logger.info(f"[DEBUG]   contracts: {contracts}")
                     
                     if contracts <= 0:
-                        logger.info(f"[FAIL] close_short: No contracts in short position for {symbol} (contracts={contracts}), skipping")
+                        logger.error(f"[FAIL] close_short: No contracts in short position for {symbol} (contracts={contracts}). Account: {account.name}")
                         save_ai_decision(db, account, decision, portfolio, executed=False)
                         continue
                     
                     quantity = max(1, int(contracts * target_portion))
                     logger.info(f"[DEBUG]   calculated quantity: {quantity} (target_portion={target_portion})")
+                    logger.info(f"[DEBUG] Ready to execute: side={side}, pos_side={pos_side}, quantity={quantity}")
                 
                 else:
                     continue
 
-                logger.info(f"Executing OKX order: {operation} ({side}/{pos_side}) {quantity} {okx_symbol} with {leverage}x leverage")
+                logger.info(f"[EXECUTE] Executing OKX order: {operation} ({side}/{pos_side}) {quantity} {okx_symbol} with {leverage}x leverage")
+                logger.info(f"[EXECUTE] Account: {account.name} (ID: {account.id})")
+                
+                # 在下单前，再次确认当前持仓状态（防止重复下单导致错误）
+                from services.okx_market_data import fetch_positions_okx
+                logger.info(f"[PRE-EXECUTE] Fetching latest positions before placing order...")
+                try:
+                    latest_positions = fetch_positions_okx(symbol=ccxt_symbol, account=account)
+                    logger.info(f"[PRE-EXECUTE] Latest positions for {ccxt_symbol}: {latest_positions}")
+                    
+                    # 筛选出目标方向的持仓
+                    target_positions = [p for p in latest_positions if p.get('symbol') == ccxt_symbol and (p.get('side') == pos_side or p.get('posSide') == pos_side)]
+                    logger.info(f"[PRE-EXECUTE] Target {pos_side} positions: {target_positions}")
+                    
+                    if not target_positions or all(float(p.get('contracts', 0)) <= 0 for p in target_positions):
+                        logger.error(f"[FAIL] No {pos_side} position found for {ccxt_symbol} before execution. Position may have been closed already.")
+                        save_ai_decision(db, account, decision, portfolio, executed=False)
+                        continue
+                except Exception as e:
+                    logger.warning(f"[PRE-EXECUTE] Failed to fetch latest positions: {e}. Continuing with order...")
                 
                 # 在下单前设置杠杆
                 from services.okx_market_data import set_leverage_okx
+                logger.info(f"[LEVERAGE] Setting leverage {leverage}x for {symbol}...")
                 leverage_result = set_leverage_okx(
                     symbol=ccxt_symbol,
                     leverage=leverage,
-                    margin_mode='cross'  # 使用全仓模式
+                    margin_mode='cross',  # 使用全仓模式
+                    account=account  # 传入账户对象
                 )
                 
                 if not leverage_result.get('success'):
-                    logger.warning(f"Failed to set leverage for {symbol}: {leverage_result.get('error')}")
+                    logger.warning(f"[LEVERAGE] Failed to set leverage for {symbol}: {leverage_result.get('error')}")
                     # 继续执行订单，即使杠杆设置失败
                 else:
-                    logger.info(f"Successfully set {leverage}x leverage for {symbol}")
+                    logger.info(f"[LEVERAGE] Successfully set {leverage}x leverage for {symbol}")
                 
-                # 调用OKX API下单，传入posSide参数
+                # 调用OKX API下单，传入account和posSide参数
+                # 对于平仓操作，添加 reduceOnly=True 确保只平仓不开新仓
+                is_close_operation = operation in ["close_long", "close_short"]
+                order_params = {
+                    'posSide': pos_side,  # 'long' 或 'short'
+                    'tdMode': 'cross'  # 全仓模式
+                }
+                if is_close_operation:
+                    order_params['reduceOnly'] = True  # 只平仓，不开新仓
+                
+                logger.info(f"[OKX] Calling create_okx_order with params: symbol={okx_symbol}, side={side.lower()}, amount={quantity}, posSide={pos_side}, reduceOnly={is_close_operation}")
                 result = create_okx_order(
                     symbol=okx_symbol,
                     side=side.lower(),
                     amount=quantity,
                     order_type="market",  # AI交易使用市价单
                     price=None,
-                    params={
-                        'posSide': pos_side,  # 'long' 或 'short'
-                        'tdMode': 'cross'  # 全仓模式
-                    }
+                    params=order_params,
+                    account=account  # 传入account使用其OKX配置
                 )
+                
+                logger.info(f"[OKX] create_okx_order result: success={result.get('success')}, error={result.get('error')}, order_id={result.get('order_id')}")
                 
                 if result.get('success'):
                     logger.info(
-                        f"✅ OKX AI order executed: {side} {quantity} {symbol} @ {leverage}x leverage "
+                        f"✅ [SUCCESS] OKX AI order executed: {side} {quantity} {symbol} @ {leverage}x leverage "
                         f"order_id={result.get('order_id')} reason='{reason}'"
                     )
                     
@@ -541,18 +622,19 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     
                 else:
                     logger.error(
-                        f"❌ OKX AI order failed: {side} {quantity} {symbol} "
-                        f"error={result.get('error')}"
+                        f"❌ [FAILED] OKX AI order failed: {side} {quantity} {symbol} "
+                        f"error={result.get('error')} | Full result: {result}"
                     )
+                    logger.error(f"[FAILED] Account: {account.name} (ID: {account.id}), Operation: {operation}")
                     # 保存失败的决策
                     save_ai_decision(db, account, decision, portfolio, executed=False, order_id=None)
 
             except Exception as account_err:
-                logger.error(f"AI-driven order placement failed for account {account.name}: {account_err}", exc_info=True)
+                logger.error(f"❌ [EXCEPTION] AI-driven order placement failed for account {account.name}: {account_err}", exc_info=True)
                 # Continue with next account even if one fails
 
     except Exception as err:
-        logger.error(f"AI-driven order placement failed: {err}", exc_info=True)
+        logger.error(f"❌ [EXCEPTION] AI-driven order placement failed: {err}", exc_info=True)
         db.rollback()
     finally:
         db.close()
