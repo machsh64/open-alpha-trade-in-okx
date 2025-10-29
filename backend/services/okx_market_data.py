@@ -288,7 +288,14 @@ class OKXClient:
 
     # Trading methods for live trading
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = None) -> dict:
-        """Create a market order"""
+        """Create a market order
+        
+        Args:
+            symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+            side: Order side ('buy' or 'sell')
+            amount: Order amount
+            params: Additional parameters, MUST include 'posSide' ('long' or 'short')
+        """
         try:
             if not self.private_exchange:
                 raise Exception("Private API not initialized - check OKX credentials")
@@ -298,10 +305,11 @@ class OKXClient:
             if params is None:
                 params = {}
             
-            # OKX永续合约需要指定posSide参数
-            # buy = 开多仓(long), sell = 开空仓(short)
+            # OKX永续合约必须指定posSide参数，应由调用方提供
+            # posSide='long': 多头持仓 (开多用buy, 平多用sell)
+            # posSide='short': 空头持仓 (开空用sell, 平空用buy)
             if 'posSide' not in params:
-                params['posSide'] = 'long' if side.lower() == 'buy' else 'short'
+                raise ValueError("posSide parameter is required for OKX perpetual futures. Must be 'long' or 'short'.")
             
             # OKX永续合约需要指定交易模式 tdMode
             if 'tdMode' not in params:
@@ -316,7 +324,15 @@ class OKXClient:
             raise
 
     def create_limit_order(self, symbol: str, side: str, amount: float, price: float, params: dict = None) -> dict:
-        """Create a limit order"""
+        """Create a limit order
+        
+        Args:
+            symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+            side: Order side ('buy' or 'sell')
+            amount: Order amount
+            price: Limit price
+            params: Additional parameters, MUST include 'posSide' ('long' or 'short')
+        """
         try:
             if not self.private_exchange:
                 raise Exception("Private API not initialized - check OKX credentials")
@@ -326,10 +342,11 @@ class OKXClient:
             if params is None:
                 params = {}
             
-            # OKX永续合约需要指定posSide参数
-            # buy = 开多仓(long), sell = 开空仓(short)
+            # OKX永续合约必须指定posSide参数，应由调用方提供
+            # posSide='long': 多头持仓 (开多用buy, 平多用sell)
+            # posSide='short': 空头持仓 (开空用sell, 平空用buy)
             if 'posSide' not in params:
-                params['posSide'] = 'long' if side.lower() == 'buy' else 'short'
+                raise ValueError("posSide parameter is required for OKX perpetual futures. Must be 'long' or 'short'.")
             
             # OKX永续合约需要指定交易模式 tdMode
             if 'tdMode' not in params:
@@ -394,6 +411,28 @@ class OKXClient:
             
         except Exception as e:
             logger.error(f"Error fetching balance: {e}")
+            raise
+
+    def fetch_ticker(self, symbol: str) -> dict:
+        """
+        Fetch ticker (current price and 24h stats) for a symbol
+        
+        Args:
+            symbol: Trading symbol (e.g., 'BTC/USDT:USDT')
+            
+        Returns:
+            Ticker dictionary with 'last', 'bid', 'ask', etc.
+        """
+        try:
+            if not self.public_exchange:
+                self._initialize_exchange()
+            
+            formatted_symbol = self._format_symbol(symbol)
+            ticker = self.public_exchange.fetch_ticker(formatted_symbol)
+            return ticker
+            
+        except Exception as e:
+            logger.error(f"Error fetching ticker for {symbol}: {e}")
             raise
 
     def fetch_positions(self, symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:
@@ -567,6 +606,11 @@ def fetch_order_okx(order_id: str, symbol: str, params: dict = None) -> dict:
 def fetch_balance_okx(params: dict = None) -> dict:
     """Fetch balance from OKX"""
     return okx_client.fetch_balance(params)
+
+
+def fetch_ticker_okx(symbol: str) -> dict:
+    """Fetch ticker (current price) from OKX"""
+    return okx_client.fetch_ticker(symbol)
 
 
 def fetch_positions_okx(symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:

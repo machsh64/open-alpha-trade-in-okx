@@ -215,7 +215,7 @@ class AIDecisionLog(Base):
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False)
     decision_time = Column(TIMESTAMP, server_default=func.current_timestamp(), index=True)
     reason = Column(String(1000), nullable=False)  # AI reasoning for the decision
-    operation = Column(String(10), nullable=False)  # buy/sell/hold
+    operation = Column(String(50), nullable=False)  # buy_long/sell_short/close_long/close_short/hold
     symbol = Column(String(20), nullable=True)  # symbol for buy/sell operations
     prev_portion = Column(DECIMAL(10, 6), nullable=False, default=0)  # previous balance portion
     target_portion = Column(DECIMAL(10, 6), nullable=False)  # target balance portion

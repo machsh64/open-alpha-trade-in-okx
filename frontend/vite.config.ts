@@ -5,7 +5,13 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0',
     port: 5621,
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      'aitrade.igotu.top',
+    ],
     proxy: {
       '/api': {
         target: 'http://localhost:5611',

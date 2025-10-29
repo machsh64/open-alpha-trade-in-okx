@@ -91,6 +91,8 @@ def _get_portfolio_data_from_okx() -> Dict:
                 notional = abs(float(pos.get('notional', 0)))  # 持仓价值
                 leverage_raw = pos.get('leverage', 1)  # 杠杆倍数
                 margin_mode = pos.get('marginMode', 'cross')  # 保证金模式
+                # 持仓方向: CCXT可能返回'side'或'posSide'字段
+                side = pos.get('side') or pos.get('posSide') or 'long'
                 
                 # 解析杠杆（可能是字符串）
                 try:
@@ -103,7 +105,8 @@ def _get_portfolio_data_from_okx() -> Dict:
                     "avg_cost": entry_price,
                     "current_value": notional,
                     "leverage": int(leverage),
-                    "margin_mode": margin_mode
+                    "margin_mode": margin_mode,
+                    "side": side  # 持仓方向: 'long' 或 'short'
                 }
                 total_position_value += notional
         
@@ -229,11 +232,11 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
             market_analysis_text += " → ".join([f"{c['change']:+.1f}%" for c in recent])
             market_analysis_text += "\n"
 
-        prompt = f"""You are a professional cryptocurrency futures trading AI with a SHORT-TERM TRADING focus. You have access to leverage trading (1x-50x). Based on comprehensive market data, make your own trading decisions.
+        prompt = f"""You are a professional cryptocurrency FUTURES trading AI with a SHORT-TERM TRADING focus. You trade perpetual futures contracts which allow BOTH long (buy) and short (sell) positions with leverage (1x-50x).
 
 Portfolio Data:
 - Cash Available: ${portfolio['cash']:.2f}
-- Frozen Cash: ${portfolio['frozen_cash']:.2f}
+- Frozen Cash (In Orders): ${portfolio['frozen_cash']:.2f}
 - Total Assets: ${portfolio['total_assets']:.2f}
 - Current Positions: {json.dumps(portfolio['positions'], indent=2)}
 
@@ -247,7 +250,14 @@ Latest Crypto News (CoinJournal):
 {news_section}
 
 YOUR MISSION:
-Analyze the market data comprehensively and make SHORT-TERM trading decisions (hold positions for less than 7 days typically). You are a professional day/swing trader with full autonomy.
+Analyze the market and make SHORT-TERM trading decisions on perpetual futures. You can profit from BOTH rising markets (long positions) AND falling markets (short positions).
+
+🔥 PERPETUAL FUTURES TRADING:
+- **LONG positions (buy)**: Profit when price goes UP. Open with "buy_long", close with "close_long"
+- **SHORT positions (sell)**: Profit when price goes DOWN. Open with "sell_short", close with "close_short"
+- You can hold multiple positions in different coins simultaneously
+- Each position can be either LONG or SHORT independently
+- Current positions show "side": "long" or "short" to indicate direction
 
 ⚠️ SHORT-TERM TRADING STRATEGY:
 - PRIMARY: Keep positions for less than 1 WEEK (7 days) in most cases
@@ -259,9 +269,10 @@ Analyze the market data comprehensively and make SHORT-TERM trading decisions (h
 
 💡 PORTFOLIO DIVERSIFICATION:
 - You CAN hold MULTIPLE different cryptocurrencies SIMULTANEOUSLY
+- You can MIX long and short positions (e.g., long BTC + short ETH)
 - Don't feel limited to holding only one position at a time
 - Diversify across different coins when opportunities arise
-- Each coin decision is independent - you can buy BTC while holding ETH
+- Each coin decision is independent
 - Consider spreading risk across 2-3 different positions
 - Balance your portfolio based on conviction and market conditions
 
@@ -296,27 +307,46 @@ POSITION MANAGEMENT:
 - You can manage multiple positions: hold ETH while buying SOL, or sell BTC while keeping DOGE
 - Diversification is your friend - don't put all capital in one coin unless extremely confident
 
-MAKE YOUR DECISION - be bold but smart. Trading every 5 minutes means you can react quickly to market changes.
+⚠️ IMPORTANT - DO NOT OVERTRADE:
+- You will be asked for your decision regularly, but you DON'T need to trade every time
+- "hold" is a VALID and often WISE choice when market conditions are unclear
+- Only trade when you have clear conviction and good entry points
+- Quality over quantity - wait for the right opportunities
+- Patience is a virtue in trading - don't force trades
+
+MAKE YOUR DECISION - be bold when opportunity is clear, but patient when it's not. Remember: "hold" is perfectly acceptable.
 
 Respond with ONLY a JSON object in this exact format:
 {{
-  "operation": "buy" or "sell" or "hold",
+  "operation": "buy_long" or "sell_short" or "close_long" or "close_short" or "hold",
   "symbol": "BTC" or "ETH" or "SOL" or "BNB" or "XRP" or "DOGE",
   "target_portion_of_balance": 0.15,
   "leverage": 3,
   "reason": "Your analysis considering short-term momentum, entry/exit timing, and position management"
 }}
 
-RULES:
-- operation: "buy" (open long), "sell" (close position), "hold" (wait)
+RULES - OPERATIONS:
+- "buy_long": Open a LONG position (profit when price goes UP)
+- "sell_short": Open a SHORT position (profit when price goes DOWN)
+- "close_long": Close an existing LONG position (take profit or cut loss on long)
+- "close_short": Close an existing SHORT position (take profit or cut loss on short)
+- "hold": Wait for better opportunity (perfectly valid choice)
+
+RULES - PARAMETERS:
 - symbol: Which cryptocurrency to trade (you can hold multiple different coins simultaneously)
-- target_portion_of_balance: % of available cash to use (0.0-1.0). Be bold if signals are strong
+- target_portion_of_balance: % of available cash to use (0.0-1.0 for opening positions, 0.0-1.0 for closing)
+  * For opening (buy_long/sell_short): portion of cash to use
+  * For closing (close_long/close_short): portion of position to close (1.0 = close entire position)
 - leverage: 1-50. Match leverage to your conviction level and market volatility
 - reason: Explain your technical analysis, focusing on SHORT-TERM momentum and exit strategy
+
+ADDITIONAL RULES:
 - You can trade up to 100% of cash if conviction is very high
 - Use higher leverage (20-50x) ONLY for exceptional opportunities with overwhelming technical confluence
 - Consider all timeframes: rapid changes in 15m/1h suggest short-term opportunities, 4h/24h/7d show broader trends
-- PRIORITY: Short-term trades, quick in and out, capture momentum"""
+- PRIORITY: Short-term trades, quick in and out, capture momentum
+- When bearish, DON'T AVOID SHORTS - use "sell_short" to profit from falling prices
+- Balance long and short positions based on market analysis"""
 
         headers = {
             "Content-Type": "application/json",

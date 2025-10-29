@@ -183,7 +183,7 @@ CREATE TABLE ai_decision_logs (
     decision_time TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reason VARCHAR(1000) NOT NULL,
     prompt TEXT,
-    operation VARCHAR(10) NOT NULL,
+    operation VARCHAR(50) NOT NULL,
     symbol VARCHAR(20),
     prev_portion DECIMAL(10, 6) NOT NULL DEFAULT 0,
     target_portion DECIMAL(10, 6) NOT NULL,
