@@ -66,6 +66,16 @@ class OKXClient:
                 logger.info(f"Initializing OKX with .env configuration (sandbox={sandbox})")
             
             # 公开API - 无需认证，用于获取行情
+            # 从环境变量读取代理配置（可选）
+            proxy_config = {}
+            proxy_url = os.getenv('PROXY_URL')  # 例如: http://127.0.0.1:7890
+            if proxy_url:
+                proxy_config = {
+                    'http': proxy_url,
+                    'https': proxy_url
+                }
+                logger.info(f"Using proxy: {proxy_url}")
+            
             self.public_exchange = ccxt.okx({
                 'sandbox': sandbox,
                 'enableRateLimit': True,
@@ -73,11 +83,13 @@ class OKXClient:
                 'options': {
                     'defaultType': 'swap',
                 },
-                'proxies': {
-                    'http': 'http://127.0.0.1:7890',
-                    'https': 'http://127.0.0.1:7890'
-                }
+                'proxies': proxy_config
             })
+            # 加载 markets 以确保 defaultType 生效
+            try:
+                self.public_exchange.load_markets()
+            except Exception as e:
+                logger.warning(f"Failed to pre-load markets: {e}")
             logger.info("OKX public API initialized")
             
             # 私有API - 需要认证，用于交易
@@ -92,11 +104,13 @@ class OKXClient:
                     'options': {
                         'defaultType': 'swap',
                     },
-                    'proxies': {
-                        'http': 'http://127.0.0.1:7890',
-                        'https': 'http://127.0.0.1:7890'
-                    }
+                    'proxies': proxy_config
                 })
+                # 加载 markets 以确保 defaultType 生效
+                try:
+                    self.private_exchange.load_markets()
+                except Exception as e:
+                    logger.warning(f"Failed to pre-load private markets: {e}")
                 logger.info("OKX private API initialized")
             else:
                 logger.warning("OKX API credentials not configured, trading disabled")

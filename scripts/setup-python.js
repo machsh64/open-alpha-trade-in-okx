@@ -41,13 +41,39 @@ try {
     run(`"./.conda/python.exe" -m pip install -U pip uv`);
   }
 
-  console.log("Found project Python at .conda/python.exe");
-  console.log("Syncing backend dependencies...");
-  run(`cd "${backendPath}" && "${condaPython}" -m uv sync`);
+  console.log("✅ Found project Python at .conda/python.exe");
+  
+  // Ensure uv is installed
+  console.log("📦 Ensuring uv is installed...");
+  run(`"${condaPython}" -m pip install -U pip uv`);
+  
+  // Install dependencies directly with pip (uv sync doesn't work well with conda envs)
+  console.log("📦 Installing backend dependencies with pip...");
+  const coreDeps = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy",
+    "python-dotenv",
+    "ccxt",
+    "schedule",
+    "apscheduler",
+    "requests",
+    "python-multipart",
+    "psycopg2-binary",
+    "pandas",
+    "numpy",
+    "websockets",
+    "pydantic"
+  ];
+  run(`"${condaPython}" -m pip install ${coreDeps.join(" ")}`);
 
-  console.log("Python dependencies synced successfully.");
+  // Verify critical dependencies
+  console.log("✅ Verifying dependencies...");
+  run(`"${condaPython}" -c "import uvicorn, pandas, psycopg2, numpy"`);
+  
+  console.log("✅ Python dependencies installed successfully.");
 } catch (err) {
-  console.error("Failed to setup Python environment:");
+  console.error("❌ Failed to setup Python environment:");
   console.error(err.message);
   process.exit(1);
 }

@@ -6,8 +6,7 @@ REM ============================================================
 
 setlocal enabledelayedexpansion
 set SCRIPT_DIR=%~dp0
-set CONDA_PYTHON=%SCRIPT_DIR%..\ .conda\python.exe
-set CONDA_PYTHON=%CONDA_PYTHON: =%
+set CONDA_PYTHON=%SCRIPT_DIR%..\.conda\python.exe
 
 echo.
 echo ==========================================
@@ -16,27 +15,36 @@ echo ==========================================
 
 REM 检查 .conda/python.exe 是否存在
 if exist "%CONDA_PYTHON%" (
-    echo Using project Python: %CONDA_PYTHON%
+    echo ✅ Using project Python: %CONDA_PYTHON%
 ) else (
-    echo Project Python not found at %CONDA_PYTHON%
-    echo Checking for conda...
-    where conda >nul 2>nul
-    if %errorlevel% neq 0 (
-        echo Conda not found! Please install Miniconda first:
-        echo    https://docs.conda.io/en/latest/miniconda.html
-        pause
-        exit /b 1
-    )
-    echo Creating new conda environment...
-    call conda create -p "%SCRIPT_DIR%..\ .conda" python=3.10 -y
-    echo Installing uv...
-    call "%SCRIPT_DIR%..\ .conda\python.exe" -m pip install -U pip uv
+    echo ❌ Project Python not found at: %CONDA_PYTHON%
+    echo.
+    echo Please run: pnpm install:all
+    echo Or manually create environment:
+    echo   conda create -p .conda python=3.10 -y
+    echo   .conda\python.exe -m pip install -U pip uv
+    echo   .conda\python.exe -m uv sync
+    echo.
+    exit /b 1
 )
 
-echo  Checking dependencies with uv...
-call "%SCRIPT_DIR%..\ .conda\python.exe" -m uv sync --quiet
+REM 检查 Python 是否可执行
+"%CONDA_PYTHON%" --version >nul 2>nul
+if %errorlevel% neq 0 (
+    echo ❌ Python executable not working: %CONDA_PYTHON%
+    exit /b 1
+)
 
-echo  Starting FastAPI server...
-call "%SCRIPT_DIR%..\ .conda\python.exe" -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
+REM 快速检查关键依赖是否已安装
+"%CONDA_PYTHON%" -c "import uvicorn" >nul 2>nul
+if %errorlevel% neq 0 (
+    echo ❌ Dependencies not installed! Please run: pnpm install:all
+    echo.
+    exit /b 1
+)
+
+echo ✅ Starting FastAPI server on http://0.0.0.0:5611 ...
+cd /d "%SCRIPT_DIR%"
+"%CONDA_PYTHON%" -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
 
 endlocal

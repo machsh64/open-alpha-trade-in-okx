@@ -38,8 +38,12 @@ else
     "$CONDA_PYTHON" -m pip install -U pip uv
 fi
 
-echo "Syncing dependencies..."
-"$CONDA_PYTHON" -m uv sync --quiet
+# Check if dependencies are installed
+if ! "$CONDA_PYTHON" -c "import uvicorn" >/dev/null 2>&1; then
+    echo "❌ Dependencies not installed! Please run: pnpm install:all"
+    echo ""
+    exit 1
+fi
 
-echo "Starting FastAPI server..."
+echo "✅ Starting FastAPI server on http://0.0.0.0:5611 ..."
 "$CONDA_PYTHON" -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
