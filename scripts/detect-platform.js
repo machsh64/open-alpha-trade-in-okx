@@ -20,14 +20,14 @@ if (platform === "win32") {
   const backendScript = path.join(projectRoot, "backend", "run_dev.sh");
   backendCmd = "bash";
   backendArgs = [backendScript];
-  frontendCmd = "bash";
-  frontendArgs = ["-c", "pnpm dev"];
+  frontendCmd = "pnpm";
+  frontendArgs = ["dev"];
 }
 
 // 启动后端（不阻塞）
 const backend = spawn(backendCmd, backendArgs, {
   stdio: "inherit",
-  shell: true,
+  shell: platform === "win32",
   detached: false,
   cwd: path.join(projectRoot, "backend")
 });
@@ -36,7 +36,7 @@ const backend = spawn(backendCmd, backendArgs, {
 console.log("🚀 Starting frontend ...");
 const frontend = spawn(frontendCmd, frontendArgs, {
   stdio: "inherit",
-  shell: true,
+  shell: false,
   detached: false,
   cwd: path.join(projectRoot, "frontend")
 });
