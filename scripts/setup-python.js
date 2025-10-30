@@ -1,10 +1,11 @@
 const { execSync } = require("child_process");
 const { existsSync } = require("fs");
 const path = require("path");
+const os = require("os");
 
 const projectRoot = path.resolve("./");
-const condaPython = path.join(projectRoot, ".conda", "python.exe");
-const backendPath = path.join(projectRoot, "backend");
+const isWin = os.platform().startsWith("win");
+const condaPython = path.join(projectRoot, ".conda", isWin ? "python.exe" : "bin/python");
 
 function run(cmd) {
   console.log(`> ${cmd}`);
@@ -30,7 +31,6 @@ try {
 
   if (!existsSync(condaPython)) {
     const condaCmd = detectConda();
-
     if (!condaCmd) {
       console.error("Conda/Micromamba not found! Please install Miniconda first.");
       process.exit(1);
@@ -38,16 +38,14 @@ try {
 
     console.log(`Creating Python env with ${condaCmd} ...`);
     run(`${condaCmd} create -p ./.conda python=3.10 -y`);
-    run(`"./.conda/python.exe" -m pip install -U pip uv`);
   }
 
-  console.log("✅ Found project Python at .conda/python.exe");
-  
-  // Ensure uv is installed
+  console.log(`✅ Found project Python at ${condaPython}`);
+
+  // 安装 pip/uv
   console.log("📦 Ensuring uv is installed...");
   run(`"${condaPython}" -m pip install -U pip uv`);
-  
-  // Install dependencies directly with pip (uv sync doesn't work well with conda envs)
+
   console.log("📦 Installing backend dependencies with pip...");
   const coreDeps = [
     "fastapi",
@@ -67,10 +65,9 @@ try {
   ];
   run(`"${condaPython}" -m pip install ${coreDeps.join(" ")}`);
 
-  // Verify critical dependencies
   console.log("✅ Verifying dependencies...");
   run(`"${condaPython}" -c "import uvicorn, pandas, psycopg2, numpy"`);
-  
+
   console.log("✅ Python dependencies installed successfully.");
 } catch (err) {
   console.error("❌ Failed to setup Python environment:");
