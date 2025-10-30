@@ -424,6 +424,9 @@ export interface PlaceOKXOrderRequest {
   quantity: number  // 后端期待的字段名
   orderType: 'market' | 'limit'
   price?: number
+  posSide: 'long' | 'short'  // OKX双向持仓模式，必填
+  tdMode?: 'cross' | 'isolated'  // 交易模式，默认全仓
+  reduceOnly?: boolean  // 是否只减仓
 }
 
 export async function placeOKXOrder(accountId: number, orderRequest: PlaceOKXOrderRequest): Promise<{ success: boolean; order_id?: string; error?: string }> {
@@ -433,7 +436,10 @@ export async function placeOKXOrder(accountId: number, orderRequest: PlaceOKXOrd
     side: orderRequest.side,
     quantity: orderRequest.quantity,
     order_type: orderRequest.orderType,
-    price: orderRequest.price
+    price: orderRequest.price,
+    pos_side: orderRequest.posSide,
+    td_mode: orderRequest.tdMode || 'cross',
+    reduce_only: orderRequest.reduceOnly || false
   }
   
   const response = await apiRequest(`/okx-account/order?account_id=${accountId}`, {

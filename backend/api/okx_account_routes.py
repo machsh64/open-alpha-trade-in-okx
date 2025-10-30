@@ -59,6 +59,9 @@ class OKXOrderRequest(BaseModel):
     order_type: str = 'market'  # market 或 limit
     quantity: float  # 数量
     price: Optional[float] = None  # 限价单价格
+    pos_side: str  # 持仓方向: 'long' 或 'short' (OKX双向持仓模式，必填)
+    td_mode: Optional[str] = 'cross'  # 交易模式: 'cross'(全仓) 或 'isolated'(逐仓)
+    reduce_only: Optional[bool] = False  # 是否只减仓
 
 
 @router.get("/status")
@@ -421,15 +424,32 @@ async def place_okx_order(account_id: int, order_request: OKXOrderRequest, db: S
         if order_request.order_type.lower() == 'limit' and (not order_request.price or order_request.price <= 0):
             raise HTTPException(status_code=400, detail="Limit order requires valid price")
         
-        logger.info(f"Placing OKX order: {order_request.side} {order_request.quantity} {order_request.symbol} @ {order_request.order_type}")
+        # 验证OKX永续合约必需的参数
+        if not order_request.pos_side or order_request.pos_side.lower() not in ['long', 'short']:
+            raise HTTPException(status_code=400, detail="pos_side is required and must be 'long' or 'short' for OKX perpetual futures")
         
-        # 调用OKX交易执行器
+        logger.info(f"Placing OKX order for account {account.name}: {order_request.side} {order_request.quantity} {order_request.symbol} @ {order_request.order_type} (pos_side={order_request.pos_side})")
+        
+        # 构建OKX参数
+        okx_params = {
+            'posSide': order_request.pos_side.lower()  # 确保小写
+        }
+        if order_request.td_mode:
+            okx_params['tdMode'] = order_request.td_mode
+        if order_request.reduce_only:
+            okx_params['reduceOnly'] = order_request.reduce_only
+        
+        logger.info(f"OKX order params: {okx_params}")
+        
+        # 调用OKX交易执行器（传入account使用其API配置）
         result = create_okx_order(
             symbol=order_request.symbol,
             side=order_request.side.lower(),
             order_type=order_request.order_type.lower(),
             amount=order_request.quantity,
-            price=order_request.price
+            price=order_request.price,
+            params=okx_params,  # 现在总是有 posSide，不需要检查
+            account=account  # 传入账户对象
         )
         
         if result.get('success'):

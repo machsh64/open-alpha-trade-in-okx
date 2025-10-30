@@ -517,39 +517,44 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                 logger.info(f"[EXECUTE] Executing OKX order: {operation} ({side}/{pos_side}) {quantity} {okx_symbol} with {leverage}x leverage")
                 logger.info(f"[EXECUTE] Account: {account.name} (ID: {account.id})")
                 
-                # 在下单前，再次确认当前持仓状态（防止重复下单导致错误）
-                from services.okx_market_data import fetch_positions_okx
-                logger.info(f"[PRE-EXECUTE] Fetching latest positions before placing order...")
-                try:
-                    latest_positions = fetch_positions_okx(symbol=ccxt_symbol, account=account)
-                    logger.info(f"[PRE-EXECUTE] Latest positions for {ccxt_symbol}: {latest_positions}")
-                    
-                    # 筛选出目标方向的持仓
-                    target_positions = [p for p in latest_positions if p.get('symbol') == ccxt_symbol and (p.get('side') == pos_side or p.get('posSide') == pos_side)]
-                    logger.info(f"[PRE-EXECUTE] Target {pos_side} positions: {target_positions}")
-                    
-                    if not target_positions or all(float(p.get('contracts', 0)) <= 0 for p in target_positions):
-                        logger.error(f"[FAIL] No {pos_side} position found for {ccxt_symbol} before execution. Position may have been closed already.")
-                        save_ai_decision(db, account, decision, portfolio, executed=False)
-                        continue
-                except Exception as e:
-                    logger.warning(f"[PRE-EXECUTE] Failed to fetch latest positions: {e}. Continuing with order...")
+                # 对于平仓操作，在下单前再次确认当前持仓状态（防止重复下单导致错误）
+                is_close_operation = operation in ["close_long", "close_short"]
+                if is_close_operation:
+                    from services.okx_market_data import fetch_positions_okx
+                    logger.info(f"[PRE-EXECUTE] Fetching latest positions before placing order...")
+                    try:
+                        latest_positions = fetch_positions_okx(symbol=ccxt_symbol, account=account)
+                        logger.info(f"[PRE-EXECUTE] Latest positions for {ccxt_symbol}: {latest_positions}")
+                        
+                        # 筛选出目标方向的持仓
+                        target_positions = [p for p in latest_positions if p.get('symbol') == ccxt_symbol and (p.get('side') == pos_side or p.get('posSide') == pos_side)]
+                        logger.info(f"[PRE-EXECUTE] Target {pos_side} positions: {target_positions}")
+                        
+                        if not target_positions or all(float(p.get('contracts', 0)) <= 0 for p in target_positions):
+                            logger.error(f"[FAIL] No {pos_side} position found for {ccxt_symbol} before execution. Position may have been closed already.")
+                            save_ai_decision(db, account, decision, portfolio, executed=False)
+                            continue
+                    except Exception as e:
+                        logger.warning(f"[PRE-EXECUTE] Failed to fetch latest positions: {e}. Continuing with order...")
                 
-                # 在下单前设置杠杆
-                from services.okx_market_data import set_leverage_okx
-                logger.info(f"[LEVERAGE] Setting leverage {leverage}x for {symbol}...")
-                leverage_result = set_leverage_okx(
-                    symbol=ccxt_symbol,
-                    leverage=leverage,
-                    margin_mode='cross',  # 使用全仓模式
-                    account=account  # 传入账户对象
-                )
-                
-                if not leverage_result.get('success'):
-                    logger.warning(f"[LEVERAGE] Failed to set leverage for {symbol}: {leverage_result.get('error')}")
-                    # 继续执行订单，即使杠杆设置失败
+                # 只在开仓操作时设置杠杆（平仓不需要设置杠杆）
+                if not is_close_operation:
+                    from services.okx_market_data import set_leverage_okx
+                    logger.info(f"[LEVERAGE] Setting leverage {leverage}x for {symbol}...")
+                    leverage_result = set_leverage_okx(
+                        symbol=ccxt_symbol,
+                        leverage=leverage,
+                        margin_mode='cross',  # 使用全仓模式
+                        account=account  # 传入账户对象
+                    )
+                    
+                    if not leverage_result.get('success'):
+                        logger.warning(f"[LEVERAGE] Failed to set leverage for {symbol}: {leverage_result.get('error')}")
+                        # 继续执行订单，即使杠杆设置失败
+                    else:
+                        logger.info(f"[LEVERAGE] Successfully set {leverage}x leverage for {symbol}")
                 else:
-                    logger.info(f"[LEVERAGE] Successfully set {leverage}x leverage for {symbol}")
+                    logger.info(f"[LEVERAGE] Skipping leverage setting for close operation")
                 
                 # 调用OKX API下单，传入account和posSide参数
                 # 对于平仓操作，添加 reduceOnly=True 确保只平仓不开新仓

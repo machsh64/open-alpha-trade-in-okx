@@ -17,6 +17,8 @@ export default function OKXTradingPanel({ onRefresh }: OKXTradingPanelProps) {
   const [quantity, setQuantity] = useState<string>('0.001')
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
   const [price, setPrice] = useState<string>('')
+  const [posSide, setPosSide] = useState<'long' | 'short'>('long')
+  const [reduceOnly, setReduceOnly] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const handlePlaceOrder = async () => {
@@ -32,7 +34,7 @@ export default function OKXTradingPanel({ onRefresh }: OKXTradingPanelProps) {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/okx-account/order', {
+      const response = await fetch('/api/okx-account/order?account_id=1', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -40,7 +42,10 @@ export default function OKXTradingPanel({ onRefresh }: OKXTradingPanelProps) {
           side,
           order_type: orderType,
           quantity: parseFloat(quantity),
-          price: orderType === 'limit' ? parseFloat(price) : undefined
+          price: orderType === 'limit' ? parseFloat(price) : undefined,
+          pos_side: posSide,
+          td_mode: 'cross',
+          reduce_only: reduceOnly
         })
       })
 
@@ -139,6 +144,44 @@ export default function OKXTradingPanel({ onRefresh }: OKXTradingPanelProps) {
             onChange={(e) => setQuantity(e.target.value)}
             placeholder="Enter quantity"
           />
+        </div>
+
+        {/* Position Side (OKX双向持仓) */}
+        <div className="space-y-2">
+          <Label>Position Side (OKX Dual-Position Mode)</Label>
+          <div className="flex gap-2">
+            <Button
+              variant={posSide === 'long' ? 'default' : 'outline'}
+              onClick={() => setPosSide('long')}
+              className="flex-1"
+            >
+              Long (多仓)
+            </Button>
+            <Button
+              variant={posSide === 'short' ? 'default' : 'outline'}
+              onClick={() => setPosSide('short')}
+              className="flex-1"
+            >
+              Short (空仓)
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            选择持仓方向：Long(开多/平多) 或 Short(开空/平空)
+          </p>
+        </div>
+
+        {/* Reduce Only */}
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="reduceOnly"
+            checked={reduceOnly}
+            onChange={(e) => setReduceOnly(e.target.checked)}
+            className="h-4 w-4"
+          />
+          <Label htmlFor="reduceOnly" className="cursor-pointer">
+            Reduce Only (只平仓，不开新仓)
+          </Label>
         </div>
 
         {/* Side Selection */}

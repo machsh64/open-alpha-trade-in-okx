@@ -965,7 +965,7 @@ def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', par
     """
     try:
         client = _get_client(account)
-        if not client:
+        if not client or not client.private_exchange:
             raise Exception("OKX private API not initialized")
         
         if params is None:
@@ -978,8 +978,8 @@ def set_leverage_okx(symbol: str, leverage: int, margin_mode: str = 'cross', par
         # 设置保证金模式和杠杆
         logger.info(f"Setting leverage for {symbol} ({inst_id}): {leverage}x, margin_mode={margin_mode}")
         
-        # 使用CCXT的setLeverage方法
-        result = client.set_leverage(
+        # 使用CCXT的setLeverage方法（注意：是 client.private_exchange 而不是 client）
+        result = client.private_exchange.set_leverage(
             leverage=leverage,
             symbol=symbol,
             params={
