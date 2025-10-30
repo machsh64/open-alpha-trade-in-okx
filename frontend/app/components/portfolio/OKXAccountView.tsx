@@ -69,24 +69,26 @@ export default function OKXAccountView({ accountId }: OKXAccountViewProps) {
   }
   
   // Lazy load order history
-  const fetchOrderHistory = async () => {
-    if (orderHistory.length > 0) return // Already loaded
+  const fetchOrderHistory = async (forceRefresh: boolean = false) => {
+    if (orderHistory.length > 0 && !forceRefresh) return // Already loaded
     try {
       const res = await getOKXOrderHistory(accountId)
       if (res.success) setOrderHistory(res.orders)
     } catch (error) {
       console.error('Failed to fetch order history:', error)
+      toast.error('Failed to load order history')
     }
   }
   
   // Lazy load trades
-  const fetchTrades = async () => {
-    if (trades.length > 0) return // Already loaded
+  const fetchTrades = async (forceRefresh: boolean = false) => {
+    if (trades.length > 0 && !forceRefresh) return // Already loaded
     try {
       const res = await getOKXTrades(accountId)
       if (res.success) setTrades(res.trades)
     } catch (error) {
       console.error('Failed to fetch trades:', error)
+      toast.error('Failed to load trade history')
     }
   }
 
@@ -95,7 +97,17 @@ export default function OKXAccountView({ accountId }: OKXAccountViewProps) {
   }, [accountId]) // Add accountId dependency
 
   const handleRefresh = () => {
+    // Clear cached history data
+    setOrderHistory([])
+    setTrades([])
+    
+    // Refresh all data
     fetchAllData()
+    
+    // Force refresh history data if currently viewing those tabs
+    fetchOrderHistory(true)
+    fetchTrades(true)
+    
     toast.success('Refreshing OKX data...')
   }
 

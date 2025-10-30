@@ -12,9 +12,12 @@ import {
   getOKXBalance, 
   getOKXPositions, 
   getOKXOpenOrders,
+  getOKXOrderHistory,
+  getOKXTrades,
   type OKXBalance,
   type OKXPosition,
-  type OKXOrder
+  type OKXOrder,
+  type OKXTrade
 } from '@/lib/api'
 import { RefreshCcw, TrendingUp, TrendingDown, DollarSign, Wallet } from 'lucide-react'
 
@@ -40,6 +43,7 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
   // Trading form state
   const [symbol, setSymbol] = useState('BTC-USDT-SWAP')
   const [side, setSide] = useState<'buy' | 'sell'>('buy')
+  const [posSide, setPosSide] = useState<'long' | 'short'>('long')
   const [orderType, setOrderType] = useState<'market' | 'limit'>('market')
   const [amount, setAmount] = useState('')
   const [price, setPrice] = useState('')
@@ -49,6 +53,8 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
   const [balance, setBalance] = useState<OKXBalance[]>([])
   const [positions, setPositions] = useState<OKXPosition[]>([])
   const [openOrders, setOpenOrders] = useState<OKXOrder[]>([])
+  const [orderHistory, setOrderHistory] = useState<OKXOrder[]>([])
+  const [trades, setTrades] = useState<OKXTrade[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
 
@@ -70,6 +76,30 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
     } finally {
       setLoading(false)
       setRefreshing(false)
+    }
+  }
+
+  // Lazy load order history
+  const fetchOrderHistory = async (forceRefresh: boolean = false) => {
+    if (orderHistory.length > 0 && !forceRefresh) return
+    try {
+      const res = await getOKXOrderHistory(accountId)
+      if (res.success) setOrderHistory(res.orders)
+    } catch (error) {
+      console.error('Failed to fetch order history:', error)
+      toast.error('Failed to load order history')
+    }
+  }
+
+  // Lazy load trades
+  const fetchTrades = async (forceRefresh: boolean = false) => {
+    if (trades.length > 0 && !forceRefresh) return
+    try {
+      const res = await getOKXTrades(accountId)
+      if (res.success) setTrades(res.trades)
+    } catch (error) {
+      console.error('Failed to fetch trades:', error)
+      toast.error('Failed to load trade history')
     }
   }
 
@@ -96,9 +126,10 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
       const result = await placeOKXOrder(accountId, {
         symbol,
         side,
-        quantity: parseFloat(amount),  // 使用quantity字段名
+        quantity: parseFloat(amount),
         orderType,
-        price: orderType === 'limit' ? parseFloat(price) : undefined
+        price: orderType === 'limit' ? parseFloat(price) : undefined,
+        posSide  // 添加持仓方向参数
       })
 
       if (result.success) {
@@ -120,7 +151,17 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
   }
 
   const handleRefresh = () => {
+    // Clear cached history data
+    setOrderHistory([])
+    setTrades([])
+    
+    // Refresh all data
     fetchAllData()
+    
+    // Force refresh history data if currently viewing those tabs
+    fetchOrderHistory(true)
+    fetchTrades(true)
+    
     toast.success('Refreshing data...')
   }
 
@@ -211,9 +252,32 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
                 </Select>
               </div>
 
+              {/* Position Side Selection */}
+              <div className="space-y-2">
+                <Label>Position Direction</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant={posSide === 'long' ? 'default' : 'outline'}
+                    onClick={() => setPosSide('long')}
+                    className={posSide === 'long' ? 'bg-green-600 hover:bg-green-700' : ''}
+                  >
+                    Long (多头)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={posSide === 'short' ? 'default' : 'outline'}
+                    onClick={() => setPosSide('short')}
+                    className={posSide === 'short' ? 'bg-red-600 hover:bg-red-700' : ''}
+                  >
+                    Short (空头)
+                  </Button>
+                </div>
+              </div>
+
               {/* Side Selection */}
               <div className="space-y-2">
-                <Label>Side</Label>
+                <Label>Order Action</Label>
                 <div className="grid grid-cols-2 gap-2">
                   <Button
                     type="button"
@@ -222,7 +286,7 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
                     className={side === 'buy' ? 'bg-green-600 hover:bg-green-700' : ''}
                   >
                     <TrendingUp className="h-4 w-4 mr-2" />
-                    Buy / Long
+                    Buy (开/加仓)
                   </Button>
                   <Button
                     type="button"
@@ -231,7 +295,7 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
                     className={side === 'sell' ? 'bg-red-600 hover:bg-red-700' : ''}
                   >
                     <TrendingDown className="h-4 w-4 mr-2" />
-                    Sell / Short
+                    Sell (平/减仓)
                   </Button>
                 </div>
               </div>
@@ -312,10 +376,16 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
             <CardDescription>Your current positions and orders</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="positions" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
+            <Tabs defaultValue="positions" className="w-full" onValueChange={(value) => {
+              // Lazy load history data when user switches to those tabs
+              if (value === 'history') fetchOrderHistory()
+              if (value === 'trades') fetchTrades()
+            }}>
+              <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="positions">Positions ({positions.length})</TabsTrigger>
                 <TabsTrigger value="orders">Orders ({openOrders.length})</TabsTrigger>
+                <TabsTrigger value="history">History</TabsTrigger>
+                <TabsTrigger value="trades">Trades</TabsTrigger>
               </TabsList>
 
               <TabsContent value="positions" className="space-y-4">
@@ -364,6 +434,64 @@ export default function ManualTradingView({ accountId }: ManualTradingViewProps)
                           </div>
                         </div>
                         <Badge>{order.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="history" className="space-y-4">
+                {orderHistory.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No order history
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {orderHistory.slice(0, 10).map((order, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <div className="font-medium">{order.symbol}</div>
+                          <div className="text-sm text-muted-foreground">
+                            <Badge variant={order.side === 'buy' ? 'default' : 'destructive'} className="mr-1">
+                              {order.side.toUpperCase()}
+                            </Badge>
+                            {order.amount} @ ${order.price || 'Market'}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {new Date(order.datetime).toLocaleString()}
+                          </div>
+                        </div>
+                        <Badge variant="outline">{order.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="trades" className="space-y-4">
+                {trades.length === 0 ? (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No trade history
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {trades.slice(0, 10).map((trade, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
+                        <div>
+                          <div className="font-medium">{trade.symbol}</div>
+                          <div className="text-sm text-muted-foreground">
+                            <Badge variant={trade.side === 'buy' ? 'default' : 'destructive'} className="mr-1">
+                              {trade.side.toUpperCase()}
+                            </Badge>
+                            {trade.amount} @ ${trade.price.toFixed(2)}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {new Date(trade.datetime).toLocaleString()}
+                          </div>
+                        </div>
+                        <div className="text-right text-sm">
+                          ${trade.cost.toFixed(2)}
+                        </div>
                       </div>
                     ))}
                   </div>
