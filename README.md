@@ -52,8 +52,6 @@ corepack enable pnpm
 
 3. **安装依赖**
 ```bash
-# 安装前端和后端依赖
-pnpm install
 pnpm install:all
 ```
 
@@ -65,18 +63,18 @@ pnpm install:all
 # 数据库配置
 DATABASE_URL=postgresql://username:password@ip:port/ai-trade
 
-# OKX API配置
-OKX_API_KEY=your_api_key
-OKX_API_SECRET=your_api_secret
-OKX_API_PASSPHRASE=your_passphrase
-OKX_SANDBOX=true  # 生产环境改为false
-
 # AI交易配置（可选）
 AI_TRADE_INTERVAL=1800  # AI交易检查间隔（秒），默认1800（30分钟）
 
-# OpenAI配置（用于AI决策，也可以在系统中配置）
-OPENAI_API_KEY=your_openai_key
-OPENAI_BASE_URL=https://api.openai.com/v1
+# 代理配置（可选）：
+# PROXY_URL=http://127.0.0.1:7890
+
+# 其他可选配置
+# 默认交易对类型 (spot: 现货, swap: 永续合约)
+DEFAULT_TRADING_TYPE=swap
+
+# 日志级别
+LOG_LEVEL=INFO
 ```
 
 5. **初始化数据库**
@@ -87,21 +85,16 @@ uv run python init_database.py
 
 6. **启动服务**
 
-开发模式（同时启动前后端）：
+开发模式（同时启动前后端）所有环境通用：
 ```bash
-# Windows
 pnpm dev
-
-# Linux/Mac
-pnpm run dev:backend:unix &
-pnpm run dev:frontend
 ```
 
 或分别启动：
 ```bash
 # 仅后端 (端口 5611)
 # Windows
-pnpm run dev:backend
+pnpm run dev:backend:win
 
 # Linux/Mac
 pnpm run dev:backend:unix
