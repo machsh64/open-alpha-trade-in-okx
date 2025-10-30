@@ -1,20 +1,45 @@
 #!/bin/bash
-# Linux/Mac启动脚本 - 用于开发环境
-# 自动查找项目Python并启动uvicorn
+# ============================================================
+# Linux/Mac 启动脚本 - 自动检测并启动项目后端 (Uvicorn)
+# 支持：自动创建 .conda 环境 + 自动安装 uv
+# ============================================================
 
-export PYTHONPATH="$(pwd)"
+set -e
 
-# 获取脚本所在目录
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+CONDA_PYTHON="$SCRIPT_DIR/../.conda/bin/python"
 
-# 检查 .conda/bin/python 是否存在
-if [ -f "$SCRIPT_DIR/../.conda/bin/python" ]; then
-    echo "Using project Python: $SCRIPT_DIR/../.conda/bin/python"
-    "$SCRIPT_DIR/../.conda/bin/python" -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
+echo ""
+echo "=========================================="
+echo "Starting backend (Unix)"
+echo "=========================================="
+
+if [ -f "$CONDA_PYTHON" ]; then
+    echo "Using project Python: $CONDA_PYTHON"
 else
-    echo "Project Python not found at ../.conda/bin/python"
-    echo "Please run: pnpm install:all"
-    echo "Or using system Python"
-    python3 -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
+    echo "Project Python not found at $CONDA_PYTHON"
+    echo "Checking for conda or micromamba..."
+
+    if command -v conda >/dev/null 2>&1; then
+        CONDA_CMD="conda"
+    elif command -v micromamba >/dev/null 2>&1; then
+        CONDA_CMD="micromamba"
+    else
+        echo "Conda/Micromamba not found!"
+        echo "Please install Miniconda first:"
+        echo "   https://docs.conda.io/en/latest/miniconda.html"
+        exit 1
+    fi
+
+    echo "Creating new environment with $CONDA_CMD ..."
+    $CONDA_CMD create -p "$SCRIPT_DIR/../.conda" python=3.10 -y
+
+    echo "Installing uv..."
+    "$CONDA_PYTHON" -m pip install -U pip uv
 fi
 
+echo "Syncing dependencies..."
+"$CONDA_PYTHON" -m uv sync --quiet
+
+echo "Starting FastAPI server..."
+"$CONDA_PYTHON" -m uvicorn main:app --reload --port 5611 --host 0.0.0.0
