@@ -509,19 +509,23 @@ class OKXClient:
                     'amount': 1,  # 默认整数
                     'price': 2,
                     'min_amount': 1,
-                    'min_cost': 5
+                    'max_amount': None,
+                    'min_cost': 5,
+                    'max_cost': None
                 }
             
             market = self.public_exchange.markets[formatted_symbol]
             
             # CCXT市场结构：
             # market['precision'] = {'amount': 1, 'price': 2}
-            # market['limits'] = {'amount': {'min': 1}, 'cost': {'min': 5}}
+            # market['limits'] = {'amount': {'min': 1, 'max': 10000000}, 'cost': {'min': 5, 'max': 1000000}}
             precision_info = {
                 'amount': market.get('precision', {}).get('amount', 1),
                 'price': market.get('precision', {}).get('price', 2),
                 'min_amount': market.get('limits', {}).get('amount', {}).get('min', 1),
-                'min_cost': market.get('limits', {}).get('cost', {}).get('min', 5)
+                'max_amount': market.get('limits', {}).get('amount', {}).get('max', None),  # 最大数量
+                'min_cost': market.get('limits', {}).get('cost', {}).get('min', 5),
+                'max_cost': market.get('limits', {}).get('cost', {}).get('max', None)  # 最大金额
             }
             
             logger.info(f"Market precision for {symbol}: {precision_info}")
@@ -534,7 +538,9 @@ class OKXClient:
                 'amount': 1,
                 'price': 2,
                 'min_amount': 1,
-                'min_cost': 5
+                'max_amount': None,
+                'min_cost': 5,
+                'max_cost': None
             }
 
     def fetch_positions(self, symbol: str = None, params: dict = None) -> List[Dict[str, Any]]:

@@ -183,7 +183,7 @@ def _get_portfolio_data(db: Session, account: Account) -> Dict:
     }
 
 
-def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, float]) -> Optional[Dict]:
+def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, float], db: Session = None) -> Optional[Dict]:
     """Call AI model API to get trading decision"""
     # Check if this is a default API key
     if _is_default_api_key(account.api_key):
@@ -191,6 +191,43 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
         return None
     
     try:
+        # 获取当前时间
+        from datetime import datetime
+        current_time = datetime.utcnow()
+        current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S UTC")
+        
+        # 获取最近5条AI决策记录
+        recent_decisions_text = ""
+        if db:
+            recent_decisions = db.query(AIDecisionLog).filter(
+                AIDecisionLog.account_id == account.id
+            ).order_by(AIDecisionLog.decision_time.desc()).limit(5).all()
+            
+            if recent_decisions:
+                recent_decisions_text = "\n\nYOUR RECENT TRADING HISTORY (Last 5 decisions):\n"
+                recent_decisions_text += "Review your recent trades to avoid overtrading and maintain consistency:\n"
+                for i, dec in enumerate(reversed(recent_decisions), 1):  # 从最早到最近
+                    time_ago = current_time - dec.decision_time
+                    hours_ago = int(time_ago.total_seconds() / 3600)
+                    minutes_ago = int((time_ago.total_seconds() % 3600) / 60)
+                    time_str = f"{hours_ago}h {minutes_ago}m ago" if hours_ago > 0 else f"{minutes_ago}m ago"
+                    
+                    recent_decisions_text += f"\n{i}. [{dec.decision_time.strftime('%Y-%m-%d %H:%M UTC')}] ({time_str})\n"
+                    recent_decisions_text += f"   Operation: {dec.operation}\n"
+                    if dec.symbol:
+                        recent_decisions_text += f"   Symbol: {dec.symbol}\n"
+                    recent_decisions_text += f"   Target Portion: {float(dec.target_portion):.1%}\n"
+                    if dec.leverage and dec.leverage > 1:
+                        recent_decisions_text += f"   Leverage: {dec.leverage}x\n"
+                    recent_decisions_text += f"   Executed: {'Yes' if dec.executed == 'true' else 'No'}\n"
+                    recent_decisions_text += f"   Reason: {dec.reason[:150]}{'...' if len(dec.reason) > 150 else ''}\n"
+                
+                recent_decisions_text += "\n⚠️ IMPORTANT: Review your recent decisions before making a new one!\n"
+                recent_decisions_text += "- Avoid opening and closing positions too frequently (overtrading)\n"
+                recent_decisions_text += "- Give your positions time to develop before making changes\n"
+                recent_decisions_text += "- Consider if you're being too reactive to short-term noise\n"
+                recent_decisions_text += "- Maintain a consistent strategy rather than constantly changing direction\n"
+        
         # 获取新闻摘要
         news_summary = fetch_latest_news()
         news_section = news_summary if news_summary else "No recent CoinJournal news available."
@@ -251,6 +288,9 @@ def call_ai_for_decision(account: Account, portfolio: Dict, prices: Dict[str, fl
             market_analysis_text += "\n"
 
         prompt = f"""You are a professional cryptocurrency FUTURES trading AI with a SHORT-TERM TRADING focus. You trade perpetual futures contracts which allow BOTH long (buy) and short (sell) positions with leverage (1x-50x).
+
+CURRENT TIME: {current_time_str}
+{recent_decisions_text}
 
 Portfolio Data:
 - Cash Available: ${portfolio['cash']:.2f}
@@ -553,6 +593,13 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
         reason = decision.get("reason", "No reason provided")
         prompt = decision.get("_prompt", "")  # Extract full prompt from decision
         
+        # 构建 AI 响应 JSON（不包括内部字段 _prompt）
+        ai_response_json = {
+            k: v for k, v in decision.items() 
+            if not k.startswith('_')  # 排除内部字段
+        }
+        ai_response_json_str = json.dumps(ai_response_json, ensure_ascii=False)
+        
         # Validate leverage range
         if leverage < 1:
             leverage = 1
@@ -581,7 +628,8 @@ def save_ai_decision(db: Session, account: Account, decision: Dict, portfolio: D
             total_balance=Decimal(str(portfolio["total_assets"])),
             executed="true" if executed else "false",
             order_id=order_id,
-            prompt=prompt  # Save full prompt to database
+            prompt=prompt,  # Save full prompt to database
+            ai_response_json=ai_response_json_str  # Save AI response JSON
         )
         
         db.add(decision_log)

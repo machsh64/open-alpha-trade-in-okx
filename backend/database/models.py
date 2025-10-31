@@ -230,6 +230,7 @@ class AIDecisionLog(Base):
     executed = Column(String(10), nullable=False, default="false")  # whether the decision was executed
     order_id = Column(Integer, ForeignKey("orders.id"), nullable=True)  # linked order if executed
     prompt = Column(String, nullable=True)  # Full prompt sent to AI model
+    ai_response_json = Column(String, nullable=True)  # AI返回的完整交易决策数据（JSON格式）
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
     # Relationships

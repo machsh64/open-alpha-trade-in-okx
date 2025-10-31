@@ -201,11 +201,14 @@ CREATE TABLE ai_decision_logs (
     total_balance DECIMAL(18, 2) NOT NULL,
     executed VARCHAR(10) NOT NULL DEFAULT 'false',
     order_id INTEGER REFERENCES orders(id) ON DELETE SET NULL,
+    ai_response_json JSONB,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_ai_decision_logs_account_id ON ai_decision_logs(account_id);
 CREATE INDEX idx_ai_decision_logs_decision_time ON ai_decision_logs(decision_time);
+
+COMMENT ON COLUMN ai_decision_logs.ai_response_json IS 'AI返回的完整交易决策数据（JSON格式）';
 
 -- Insert default trading config for CRYPTO market
 INSERT INTO trading_configs (market, min_commission, commission_rate, exchange_rate, min_order_quantity, lot_size)

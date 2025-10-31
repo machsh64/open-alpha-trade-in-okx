@@ -221,8 +221,8 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     logger.debug(f"Account {account.name} has non-positive total assets, skipping")
                     continue
 
-                # Call AI for trading decision
-                decision = call_ai_for_decision(account, portfolio, prices)
+                # Call AI for trading decision (传入 db 参数以获取历史记录)
+                decision = call_ai_for_decision(account, portfolio, prices, db=db)
                 if not decision or not isinstance(decision, dict):
                     logger.warning(f"Failed to get AI decision for {account.name}, skipping")
                     continue
@@ -354,7 +354,9 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     precision_info = get_market_precision_okx(ccxt_symbol, account=account)
                     amount_precision = precision_info.get('amount', 1)
                     min_amount = precision_info.get('min_amount', 1)
-                    logger.info(f"[DEBUG] Market precision for {symbol}: amount_precision={amount_precision}, min_amount={min_amount}")
+                    max_amount = precision_info.get('max_amount', None)  # 最大数量限制
+                    max_cost = precision_info.get('max_cost', None)  # 最大金额限制
+                    logger.info(f"[DEBUG] Market precision for {symbol}: amount_precision={amount_precision}, min_amount={min_amount}, max_amount={max_amount}, max_cost={max_cost}")
                     
                 except Exception as e:
                     logger.error(f"Failed to fetch price/precision for {symbol}: {e}")
@@ -387,6 +389,23 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     if quantity < min_amount:
                         logger.warning(f"Calculated quantity {quantity} below min {min_amount}, adjusting")
                         quantity = min_amount
+                    
+                    # 检查是否超过最大数量限制
+                    if max_amount and quantity > max_amount:
+                        logger.warning(f"Calculated quantity {quantity} exceeds max {max_amount}, capping to maximum")
+                        quantity = max_amount
+                    
+                    # 检查是否超过最大金额限制
+                    if max_cost:
+                        max_quantity_by_cost = max_cost / current_price
+                        if quantity > max_quantity_by_cost:
+                            logger.warning(f"Calculated quantity {quantity} exceeds max cost limit (max_cost=${max_cost}), capping to {max_quantity_by_cost}")
+                            quantity = max_quantity_by_cost
+                            # 重新应用精度
+                            if amount_precision >= 1:
+                                quantity = round(quantity, amount_precision)
+                            else:
+                                quantity = int(quantity)
                     
                     logger.info(f"[DEBUG] Calculated buy_long quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
                     
@@ -421,6 +440,23 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2) -> None:
                     if quantity < min_amount:
                         logger.warning(f"Calculated quantity {quantity} below min {min_amount}, adjusting")
                         quantity = min_amount
+                    
+                    # 检查是否超过最大数量限制
+                    if max_amount and quantity > max_amount:
+                        logger.warning(f"Calculated quantity {quantity} exceeds max {max_amount}, capping to maximum")
+                        quantity = max_amount
+                    
+                    # 检查是否超过最大金额限制
+                    if max_cost:
+                        max_quantity_by_cost = max_cost / current_price
+                        if quantity > max_quantity_by_cost:
+                            logger.warning(f"Calculated quantity {quantity} exceeds max cost limit (max_cost=${max_cost}), capping to {max_quantity_by_cost}")
+                            quantity = max_quantity_by_cost
+                            # 重新应用精度
+                            if amount_precision >= 1:
+                                quantity = round(quantity, amount_precision)
+                            else:
+                                quantity = int(quantity)
                     
                     logger.info(f"[DEBUG] Calculated sell_short quantity: {quantity} {symbol} (value=${order_value_usdt:.2f})")
                     
